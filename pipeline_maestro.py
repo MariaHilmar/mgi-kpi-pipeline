@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
-import logging
 
 # Importa os modulos locais
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,6 +26,7 @@ try:
     from process_gitlab_issues_v2 import process_issues, parse_date
     from atualizar_gitlab_issues import validar_json_local
     from log_maintenance import limpar_logs_antigos
+    from logging_utils import configure_logging, get_logger
 except ImportError as e:
     print(f"ERRO importando modulos: {e}")
     sys.exit(1)
@@ -53,33 +53,14 @@ class PipelineMaestro:
             os.environ["MGI_REFRESH_MODE"] = "full"
             mgi_config.REFRESH_MODE = "full"
 
-        # Logging
-        self.setup_logging()
-        self.logger = logging.getLogger(__name__)
-
-    def setup_logging(self):
-        """Configura logging para arquivo e console"""
-        logs_dir = self.output_dir / "Logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        log_file = logs_dir / f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ]
-        )
+        # Logging central (console em stdout + arquivo rotacionado)
+        configure_logging()
+        self.logger = get_logger(__name__)
 
     def validar_ambiente(self) -> bool:
         """Valida existencia de arquivos e diretorios necessarios"""
-        print("\n[VALIDACAO] Validando ambiente...")
-
-        # Validar repositorio (OPCIONAL - se nao existir, continua em modo offline)
-        # Para caminhos WSL, apenas tentaremos coletar - se falhar, modo offline
-        self.logger.info(f"INFO - Repositorio configurado: {self.repo_path}")
-        print(f"   [INFO] Repositorio: {self.repo_path}")
+        self.logger.info("\n[VALIDACAO] Validando ambiente...")
+        self.logger.info(f"   [INFO] Repositorio: {self.repo_path}")
 
         # Validar JSON de issues
         if not self.issues_json.exists():
@@ -94,8 +75,8 @@ class PipelineMaestro:
 
     def executar_coleta_git(self):
         """Executa coleta de dados Git (ambos repositorios)"""
-        print("\n[COLETA GIT] ETAPA 1: Coleta Git - Multiplos Repositorios")
-        print("="*70)
+        self.logger.info("\n[COLETA GIT] ETAPA 1: Coleta Git - Multiplos Repositorios")
+        self.logger.info("=" * 70)
         try:
             git_output = self.output_dir / "gitlab_git_data.json"
 
@@ -111,12 +92,11 @@ class PipelineMaestro:
             }
 
             for repo_path, repo_name in repos:
-                print(f"   [INFO] {repo_name}...")
+                self.logger.info(f"   [INFO] {repo_name}...")
                 try:
                     coleta = GitColeta(repo_path, repo_name)
                     if not coleta.validar_repo():
-                        self.logger.warning(f"Repositorio inacessivel, pulando: {repo_name} ({repo_path})")
-                        print(f"      AVISO: repositorio inacessivel ({repo_name})")
+                        self.logger.warning(f"      AVISO: repositorio inacessivel ({repo_name}) - {repo_path}")
                         dados_consolidados['repositorios'].append(coleta.data)
                         continue
                     coleta.processar_completo(None, since_days=mgi_config.SINCE_DAYS)  # None = nao exporta individual
@@ -124,18 +104,19 @@ class PipelineMaestro:
                     dados_consolidados['total_commits'] += len(coleta.data['commits'])
                     dados_consolidados['total_branches'] += len(coleta.data['branches'])
                     dados_consolidados['total_releases'] += len(coleta.data['releases'])
-                    print(f"      OK - {repo_name} concluido")
+                    self.logger.info(f"      OK - {repo_name} concluido")
                 except Exception as e:
-                    self.logger.error(f"Erro ao coletar {repo_name}: {e}")
-                    print(f"      ERRO: {e}")
+                    self.logger.error(f"      ERRO ao coletar {repo_name}: {e}")
 
             # Exportar consolidado
             with open(str(git_output), 'w', encoding='utf-8') as f:
                 json.dump(dados_consolidados, f, indent=2, ensure_ascii=False)
 
             self.logger.info(f"OK - Coleta Git consolidada: {git_output}")
-            print(f"\n   [RESUMO] {len(dados_consolidados['repositorios'])} repos, "
-                  f"{dados_consolidados['total_commits']} commits")
+            self.logger.info(
+                f"\n   [RESUMO] {len(dados_consolidados['repositorios'])} repos, "
+                f"{dados_consolidados['total_commits']} commits"
+            )
             return git_output
         except Exception as e:
             self.logger.error(f"ERRO na coleta Git: {e}")
@@ -143,8 +124,8 @@ class PipelineMaestro:
 
     def carregar_issues_json(self) -> List[Dict]:
         """Carrega issues do JSON exportado"""
-        print("\n[ISSUES] ETAPA 2: Carregamento de Issues")
-        print("="*70)
+        self.logger.info("\n[ISSUES] ETAPA 2: Carregamento de Issues")
+        self.logger.info("=" * 70)
         try:
             with open(self.issues_json, 'r', encoding='utf-8') as f:
                 issues_data = json.load(f)
@@ -159,7 +140,6 @@ class PipelineMaestro:
             # Passa issues ao processador; filtro de fechadas antigas e de data
             # para novas insercoes sao aplicados em process_gitlab_issues_v2
             self.logger.info(f"OK - Issues carregadas: {len(issues)}")
-            print(f"OK - Issues carregadas: {len(issues)}")
             return issues
         except Exception as e:
             self.logger.error(f"ERRO carregando issues: {e}")
@@ -167,8 +147,8 @@ class PipelineMaestro:
 
     def processar_issues_excel(self, issues: List[Dict]) -> bool:
         """Processa issues e exporta para Excel"""
-        print("\n[EXCEL] ETAPA 3: Processamento de Issues")
-        print("="*70)
+        self.logger.info("\n[EXCEL] ETAPA 3: Processamento de Issues")
+        self.logger.info("=" * 70)
         try:
             excel_file = str(self.excel_output)
             self.logger.info(f"Excel de destino: {excel_file}")
@@ -201,7 +181,7 @@ class PipelineMaestro:
                 f"OK - Issues processadas (atualizadas={result.get('updated_existing', 0)}, "
                 f"novas={result.get('new_added', 0)})"
             )
-            print("OK - Processamento concluido")
+            self.logger.info("OK - Processamento concluido")
             return True
         except Exception as e:
             self.logger.error(f"ERRO processando issues: {e}", exc_info=True)
@@ -262,26 +242,26 @@ class PipelineMaestro:
 
     def executar_pipeline(self) -> bool:
         """Executa pipeline completo"""
-        print("\n" + "="*70)
-        print("PIPELINE MAESTRO - CONTRATOS v2")
-        print("="*70)
-        print(f"Data/Hora Inicio: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        self.logger.info("\n" + "=" * 70)
+        self.logger.info("PIPELINE MAESTRO - CONTRATOS v2")
+        self.logger.info("=" * 70)
+        self.logger.info(f"Data/Hora Inicio: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         if self.data_input:
-            print(f"Data Entrada: {self.data_input}")
+            self.logger.info(f"Data Entrada: {self.data_input}")
         if self.all_modules:
-            print("Modo modulos: TODOS (MGI_ALL_MODULES=1)")
+            self.logger.info("Modo modulos: TODOS (MGI_ALL_MODULES=1)")
         if self.initial_load:
-            print("Modo carga: INICIAL (sem filtro de issues fechadas > 60 dias)")
+            self.logger.info("Modo carga: INICIAL (sem filtro de issues fechadas > 60 dias)")
         if self.full_refresh:
-            print("Modo atualizacao: EXECUCAO COMPLETA (reprocessa metadados e enriquecimentos)")
+            self.logger.info("Modo atualizacao: EXECUCAO COMPLETA (reprocessa metadados e enriquecimentos)")
 
         removed_logs = limpar_logs_antigos(Path(self.output_dir))
         if removed_logs:
-            print(f"OK - {removed_logs} arquivo(s) de log com mais de {mgi_config.LOG_RETENTION_DAYS} dias removidos")
+            self.logger.info(f"OK - {removed_logs} arquivo(s) de log com mais de {mgi_config.LOG_RETENTION_DAYS} dias removidos")
 
         # Validacao
         if not self.validar_ambiente():
-            print("\nERRO: Validacao falhou. Abortando.")
+            self.logger.error("\nERRO: Validacao falhou. Abortando.")
             return False
 
         # Coleta Git (OPCIONAL)
@@ -311,32 +291,34 @@ class PipelineMaestro:
         # Carregar issues
         issues = self.carregar_issues_json()
         if not issues:
-            print("\nERRO: Nenhuma issue carregada. Abortando.")
+            self.logger.error("\nERRO: Nenhuma issue carregada. Abortando.")
             return False
 
         # Processar issues
         if not self.processar_issues_excel(issues):
-            print("\nERRO: Processamento de issues falhou. Abortando.")
+            self.logger.error("\nERRO: Processamento de issues falhou. Abortando.")
             return False
 
         # Gerar relatorio final
         self.gerar_relatorio_final(git_stats, len(issues))
 
-        print("\n" + "="*70)
-        print("OK - PIPELINE CONCLUIDO COM SUCESSO")
-        print("="*70)
-        print(f"\nResumo Final:")
-        print(f"   Commits: {git_stats.get('commits_total', 0)}")
-        print(f"   Branches: {git_stats.get('branches_total', 0)}")
-        print(f"   Releases: {git_stats.get('releases_total', 0)}")
-        print(f"   Issues: {len(issues)}")
-        print(f"   Excel: {self.excel_output}")
-        print(f"\nData/Hora Fim: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        self.logger.info("\n" + "=" * 70)
+        self.logger.info("OK - PIPELINE CONCLUIDO COM SUCESSO")
+        self.logger.info("=" * 70)
+        self.logger.info("\nResumo Final:")
+        self.logger.info(f"   Commits: {git_stats.get('commits_total', 0)}")
+        self.logger.info(f"   Branches: {git_stats.get('branches_total', 0)}")
+        self.logger.info(f"   Releases: {git_stats.get('releases_total', 0)}")
+        self.logger.info(f"   Issues: {len(issues)}")
+        self.logger.info(f"   Excel: {self.excel_output}")
+        self.logger.info(f"\nData/Hora Fim: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         return True
 
 
 def main():
     """Funcao principal"""
+    configure_logging()
+    logger = get_logger(__name__)
 
     all_modules = os.environ.get("MGI_ALL_MODULES", "1").lower() not in ("0", "false", "no")
     initial_load = os.environ.get("MGI_INITIAL_LOAD", "0").lower() not in ("0", "false", "no")
@@ -359,7 +341,7 @@ def main():
         input_data = sys.stdin.readline().strip()
         if input_data:
             data_input = input_data
-            print(f"[INFO] Data recebida do batch: {data_input}")
+            logger.info(f"[INFO] Data recebida do batch: {data_input}")
     except (EOFError, OSError, ValueError):
         pass
 
