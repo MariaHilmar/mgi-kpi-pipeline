@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""
+Coleta dados de múltiplos repositórios Git locais (contratos_v2 e contratos)
+Extrai: commits, branches, releases/tags
+Exporta como JSON estruturado para pipeline
+Consolidação de múltiplos repositórios na mesma saída
+"""
+
+import subprocess
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+import re
+
+class GitColeta:
+    def __init__(self, repo_path: str, repo_name: Optional[str] = None):
+        self.repo_path = Path(repo_path)
+        self.repo_name = repo_name or Path(repo_path).name
+        self.data: Dict = {
+            'timestamp': datetime.now().isoformat(),
+            'repositorio': self.repo_name,
+            'caminho': str(repo_path),
+            'commits': [],
+            'branches': [],
+            'releases': [],
+            'stats': {}
+        }
+
+    def run_git(self, cmd: str, timeout: int = 30) -> str:
+        """Executa comando git no repositório.
+
+        Verifica o returncode e loga stderr para evitar falhas silenciosas.
+        """
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                shell=True,
+                timeout=timeout,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or '').strip()
+                print(f"❌ Git retornou codigo {result.returncode} em {self.repo_name}: {stderr}")
+                return ""
+            return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            print(f"❌ Timeout ({timeout}s) executando git em {self.repo_name}: {cmd}")
+            return ""
+        except Exception as e:
+            print(f"❌ Erro executando git em {self.repo_name}: {e}")
+            return ""
+
+    def validar_repo(self) -> bool:
+        """Verifica se o repositório é acessível e é um repositório Git válido."""
+        try:
+            result = subprocess.run(
+                'git rev-parse --git-dir',
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                shell=True,
+                timeout=10,
+            )
+            return result.returncode == 0
+        except Exception as e:
+            print(f"❌ Repositorio inacessivel {self.repo_name}: {e}")
+            return False
+
+    def coleta_commits(self, since_days: int = 30) -> List[Dict[str, str]]:
+        """Extrai commits dos últimos N dias"""
+        print(f"📥 Coletando commits (últimos {since_days} dias)...")
+
+        # Git log format: hash|author|email|date|message
+        cmd = f'git log --since="{since_days} days ago" --format="%h|%an|%ae|%aI|%s"'
+        output = self.run_git(cmd)
+
+        commits_by_author = {}
+
+        for line in output.split('\n'):
+            if not line:
+                continue
+
+            try:
+                hash_id, author, email, date, message = line.split('|', 4)
+
+                commit = {
+                    'id': hash_id,
+                    'autor': author,
+                    'email': email,
+                    'data': date[:10],  # YYYY-MM-DD
+                    'mensagem': message[:100]
+                }
+                self.data['commits'].append(commit)
+
+                # Agregação por autor
+                if author not in commits_by_author:
+                    commits_by_author[author] = 0
+                commits_by_author[author] += 1
+
+            except ValueError:
+                continue
+
+        self.data['stats']['commits_total'] = len(self.data['commits'])
+        self.data['stats']['commits_por_autor'] = commits_by_author
+        print(f"✅ {len(self.data['commits'])} commits encontrados")
+        return self.data['commits']
+
+    def coleta_branches(self) -> List[Dict[str, str]]:
+        """Extrai branches ativos"""
+        print("📥 Coletando branches...")
+
+        # Listar branches locais com último commit
+        cmd = 'git branch -v --format="%(refname:short)|%(objectname:short)|%(committerdate:short)"'
+        output = self.run_git(cmd)
+
+        for line in output.split('\n'):
+            if not line or line.startswith('*'):
+                continue
+
+            try:
+                parts = line.replace('* ', '').split('|')
+                if len(parts) >= 2:
+                    branch = {
+                        'nome': parts[0].strip(),
+                        'commit': parts[1].strip() if len(parts) > 1 else '',
+                        'data': parts[2].strip() if len(parts) > 2 else ''
+                    }
+                    self.data['branches'].append(branch)
+            except Exception:
+                continue
+
+        print(f"✅ {len(self.data['branches'])} branches encontrados")
+        return self.data['branches']
+
+    def coleta_releases(self) -> List[Dict[str, str]]:
+        """Extrai tags (simula releases)"""
+        print("📥 Coletando releases/tags...")
+
+        # Git tags com data
+        cmd = 'git tag -l --format="%(refname:short)|%(creatordate:short)"'
+        output = self.run_git(cmd)
+
+        releases = []
+        for line in output.split('\n'):
+            if not line:
+                continue
+
+            try:
+                parts = line.split('|')
+                release = {
+                    'versao': parts[0].strip(),
+                    'data': parts[1].strip() if len(parts) > 1 else ''
+                }
+                releases.append(release)
+            except Exception:
+                continue
+
+        # Ordenar por versão (semântica)
+        self.data['releases'] = sorted(
+            releases,
+            key=lambda x: self._parse_version(x['versao']),
+            reverse=True
+        )
+
+        print(f"✅ {len(self.data['releases'])} releases encontradas")
+        return self.data['releases']
+
+    @staticmethod
+    def _parse_version(version_str):
+        """Parse versão semântica para ordenação"""
+        # Remove prefixos como 'v', 'release-', etc
+        clean = re.sub(r'^[a-zA-Z-]+', '', version_str)
+        parts = clean.split('.')
+        return tuple(int(p) if p.isdigit() else 0 for p in parts[:3])
+
+    def coleta_estatisticas(self):
+        """Calcula estatísticas gerais"""
+        print("📊 Calculando estatísticas...")
+
+        # Commits por mês
+        commits_por_mes = {}
+        for commit in self.data['commits']:
+            mes = commit['data'][:7]  # YYYY-MM
+            commits_por_mes[mes] = commits_por_mes.get(mes, 0) + 1
+
+        self.data['stats']['commits_por_mes'] = commits_por_mes
+        self.data['stats']['branches_total'] = len(self.data['branches'])
+        self.data['stats']['releases_total'] = len(self.data['releases'])
+
+    def exportar_json(self, output_file):
+        """Exporta dados como JSON"""
+        self.coleta_estatisticas()
+
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, indent=2, ensure_ascii=False)
+            print(f"✅ Dados exportados: {output_file}")
+            return output_file
+        else:
+            # Apenas calcula estatísticas sem exportar
+            return None
+
+    def processar_completo(self, output_file: Optional[str], since_days: int = 30) -> Dict:
+        """Pipeline completo de coleta"""
+        print("\n" + "="*70)
+        print("🚀 COLETA DE DADOS GIT - CONTRATOS v2")
+        print("="*70)
+        print(f"📂 Repositório: {self.repo_path}")
+        print(f"📅 Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+
+        self.coleta_commits(since_days=since_days)
+        self.coleta_branches()
+        self.coleta_releases()
+
+        self.exportar_json(output_file)
+
+        self._print_resumo()
+
+        return self.data
+
+    def _print_resumo(self):
+        """Exibe resumo dos dados coletados"""
+        print("\n" + "="*70)
+        print("📊 RESUMO")
+        print("="*70)
+        print(f"\n📈 COMMITS:")
+        print(f"   Total: {self.data['stats'].get('commits_total', 0)}")
+        if self.data['stats'].get('commits_por_autor'):
+            print(f"   Top 3 autores:")
+            for autor, count in sorted(
+                self.data['stats']['commits_por_autor'].items(),
+                key=lambda x: -x[1]
+            )[:3]:
+                print(f"     • {autor}: {count}")
+
+        print(f"\n🌿 BRANCHES: {self.data['stats'].get('branches_total', 0)}")
+        if self.data['branches']:
+            for branch in self.data['branches'][:5]:
+                print(f"   • {branch['nome']} ({branch['data']})")
+
+        print(f"\n📅 RELEASES: {self.data['stats'].get('releases_total', 0)}")
+        if self.data['releases']:
+            for release in self.data['releases'][:5]:
+                print(f"   • {release['versao']} ({release['data']})")
+
+        print("\n" + "="*70)
+
+
+if __name__ == '__main__':
+    import sys
+
+    # Configuração - ambos repositórios
+    REPOS = [
+        (r"\\wsl.localhost\Ubuntu\root\MGI\contratos_v2", "contratos_v2"),
+        (r"\\wsl.localhost\Ubuntu\root\MGI\contratos", "contratos"),
+    ]
+    OUTPUT_FILE = r"D:\MGI-Relatórios\gitlab_git_data.json"
+    DIAS = 30
+
+    # Se passado via linha de comando
+    if len(sys.argv) > 1:
+        OUTPUT_FILE = sys.argv[1]
+    if len(sys.argv) > 2:
+        DIAS = int(sys.argv[2])
+
+    # Consolidar dados de ambos repositórios
+    dados_consolidados = {
+        'timestamp': datetime.now().isoformat(),
+        'repositorios': [],
+        'total_commits': 0,
+        'total_branches': 0,
+        'total_releases': 0,
+    }
+
+    print("="*70)
+    print("🔄 COLETA GIT - MÚLTIPLOS REPOSITÓRIOS")
+    print("="*70)
+
+    for repo_path, repo_name in REPOS:
+        print(f"\n📂 Processando: {repo_name}")
+        print(f"   Caminho: {repo_path}")
+
+        try:
+            coleta = GitColeta(repo_path, repo_name)
+            coleta.processar_completo(None, since_days=DIAS)  # None = não exporta individualmente
+
+            dados_consolidados['repositorios'].append(coleta.data)
+            dados_consolidados['total_commits'] += len(coleta.data['commits'])
+            dados_consolidados['total_branches'] += len(coleta.data['branches'])
+            dados_consolidados['total_releases'] += len(coleta.data['releases'])
+
+            print(f"   ✅ Sucesso")
+        except Exception as e:
+            print(f"   ❌ Erro: {e}")
+
+    # Exportar consolidado
+    print(f"\n💾 Exportando para: {OUTPUT_FILE}")
+    try:
+        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(dados_consolidados, f, indent=2, ensure_ascii=False)
+        print(f"✅ Dados consolidados exportados com sucesso!")
+        print(f"\n📊 RESUMO:")
+        print(f"   Repositórios: {len(dados_consolidados['repositorios'])}")
+        print(f"   Total commits: {dados_consolidados['total_commits']}")
+        print(f"   Total branches: {dados_consolidados['total_branches']}")
+        print(f"   Total releases: {dados_consolidados['total_releases']}")
+    except Exception as e:
+        print(f"❌ Erro ao exportar: {e}")
