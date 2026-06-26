@@ -19,9 +19,6 @@ BASE_DIR: Path = Path(os.environ.get("MGI_BASE_DIR", str(_WORKSPACE_DIR)))
 MGI_DIR: Path = Path(os.environ.get("MGI_PIPELINE_DIR", str(Path(__file__).resolve().parent)))
 LOGS_DIR: Path = BASE_DIR / "logs"
 
-EXCEL_OUTPUT: Path = Path(
-    os.environ.get("MGI_EXCEL_OUTPUT", str(BASE_DIR / "MGI_Dashboard.xlsx"))
-)
 ISSUES_JSON: Path = Path(
     os.environ.get("MGI_ISSUES_JSON", str(MGI_DIR / "gitlab_issues_raw.json"))
 )

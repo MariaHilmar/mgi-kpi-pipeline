@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
-Sincroniza a aba Dados do Excel (e releases Git) para o Supabase.
+Sincroniza issues (GitLab -> JSON -> Supabase) sem passar por Excel.
+
+As issues sao processadas em memoria por processar_issues_memoria.build_issue_records
+(mesmos detectores e taxonomia do pipeline) e enviadas direto para a tabela
+public.issues via PostgREST. Releases vem de gitlab_git_data.json.
 
 Uso:
   python sync_supabase.py
-  python sync_supabase.py --excel D:\\MGI-Relatórios\\MGI_Dashboard.xlsx
+  python sync_supabase.py --json D:\\caminho\\gitlab_issues_raw.json
+  python sync_supabase.py --sem-releases
 """
 
 from __future__ import annotations
@@ -12,120 +17,31 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import unicodedata
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
-from openpyxl import load_workbook
-from openpyxl.worksheet.worksheet import Worksheet
+
+from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
+from processar_issues_memoria import build_issue_records
 
 try:
     import config as _config
 except ImportError:
     _config = None
 
-DADOS_SHEET = "Dados"
-
-# Excel header (normalizado) -> coluna Supabase
-COLUMN_MAP: Dict[str, str] = {
-    "#": "gitlab_iid",
-    "id": "gitlab_iid",
-    "titulo": "titulo",
-    "modulo": "modulo",
-    "modulo normalizado": "modulo_normalizado",
-    "area funcional": "area_funcional",
-    "tipo": "tipo",
-    "estado": "estado",
-    "status": "status",
-    "prioridade": "prioridade",
-    "equipe": "equipe",
-    "parceria": "parceria",
-    "sprint": "sprint",
-    "assignee": "assignee",
-    "autor": "autor",
-    "solicitante": "solicitante",
-    "alteracao escopo": "alteracao_escopo",
-    "repositorio": "repositorio",
-    "desenvolvedor": "desenvolvedor",
-    "criado em": "criado_em",
-    "data criacao": "criado_em",
-    "fechado em": "fechado_em",
-    "lead time": "lead_time_dias",
-    "ano/mes criacao": "ano_mes_criacao",
-    "ano criacao": "ano_criacao",
-    "mes criacao data": "mes_criacao",
-    "ano/mes fechamento": "ano_mes_fechamento",
-    "mes fechamento data": "mes_fechamento",
-    "aberto?": "aberto",
-    "fechado?": "fechado",
-    "idade (dias)": "idade_dias",
-    "sla > 90 dias": "sla_mais_90_dias",
-    "dev: tem branch": "dev_tem_branch",
-    "dev: branch": "dev_branch",
-    "dev: commits": "dev_commits",
-    "dev: ultimo commit": "dev_ultimo_commit",
-    "dev: autor dev": "dev_autor_dev",
-    "gitlab: mrs": "gitlab_mrs",
-    "dev: mergeado?": "dev_mergeado",
-    "categoria": "categoria",
-    "modulo ok?": "modulo_ok",
-    "area ok?": "area_ok",
-    "padrao titulo?": "padrao_titulo",
-    "padrao completo?": "padrao_completo",
-    "confianca area": "confianca_area",
-    "situacao analise": "situacao_analise",
-    "situacao": "situacao_analise",
-    "desenvolvedor futuro": "desenvolvedor_futuro",
-    "observacao geral": "observacao_geral",
-    "chamado": "chamado",
-    "priorizar": "priorizar",
-    "epico": "epico",
-    "epico/atividade": "epico",
-    "epico atividade": "epico",
-    "faixa de idade": "faixa_idade",
-    "faixa idade": "faixa_idade",
-}
-
-INT_FIELDS = {
-    "lead_time_dias",
-    "idade_dias",
-    "dev_commits",
-    "gitlab_mrs",
-    "ano_criacao",
-    "gitlab_iid",
-}
-BOOL_FIELDS = {"aberto", "fechado", "sla_mais_90_dias"}
-DATETIME_FIELDS = {
-    "criado_em",
-    "fechado_em",
-    "dev_ultimo_commit",
-    "mes_criacao",
-    "mes_fechamento",
-}
-
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _normalize_header(name: Optional[str]) -> str:
-    if not name:
-        return ""
-    text = str(name).strip().lower()
-    return "".join(
-        c for c in unicodedata.normalize("NFD", text)
-        if unicodedata.category(c) != "Mn"
-    )
-
-
-def _excel_path(explicit: Optional[Path]) -> Path:
+def _issues_json_path(explicit: Optional[Path]) -> Path:
     if explicit:
         return explicit
-    if _config:
-        return Path(_config.EXCEL_OUTPUT)
-    return Path(__file__).resolve().parent.parent / "MGI_Dashboard.xlsx"
+    if _config and hasattr(_config, "ISSUES_JSON"):
+        return Path(_config.ISSUES_JSON)
+    return Path(__file__).resolve().parent / "gitlab_issues_raw.json"
 
 
 def _git_data_path() -> Path:
@@ -134,200 +50,45 @@ def _git_data_path() -> Path:
     return Path(__file__).resolve().parent.parent / "gitlab_git_data.json"
 
 
-def _resolve_layout(ws: Worksheet) -> Tuple[int, int, Dict[str, int]]:
-    header_row = 2
-    for row in range(1, min(6, ws.max_row + 1)):
-        labels = {
-            _normalize_header(ws.cell(row=row, column=col).value)
-            for col in range(1, ws.max_column + 1)
-        }
-        labels.discard("")
-        if "titulo" in labels or "modulo" in labels:
-            header_row = row
-            break
-
-    header_map: Dict[str, int] = {}
-    for col in range(1, ws.max_column + 1):
-        norm = _normalize_header(ws.cell(row=header_row, column=col).value)
-        if norm and norm not in header_map:
-            header_map[norm] = col
-
-    return header_row, header_row + 1, header_map
+def _load_issues_json(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists():
+        raise SystemExit(f"JSON de issues nao encontrado: {path}")
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("issues"), list):
+        return data["issues"]
+    return []
 
 
-def _field_column_map(header_map: Dict[str, int]) -> Dict[str, int]:
-    """db_col -> indice 0-based na linha do Excel."""
-    mapping: Dict[str, int] = {}
-    for header_norm, db_col in COLUMN_MAP.items():
-        col = header_map.get(header_norm)
-        if col is not None:
-            mapping[db_col] = col - 1
-    return mapping
+def _cutoff_date() -> Optional[datetime]:
+    if _config and hasattr(_config, "DEFAULT_CUTOFF_DATE"):
+        return _config.DEFAULT_CUTOFF_DATE
+    return datetime(2024, 1, 1)
 
 
-def _row_value(row: Sequence[Any], index: Optional[int]) -> Any:
-    if index is None or index < 0 or index >= len(row):
-        return None
-    return row[index]
+def _filter_issues_for_sync(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Aplica os mesmos filtros do pipeline: fechadas antigas + data de corte."""
+    filtered, excluded = filtrar_issues_fechadas_antigas(issues)
+    if excluded:
+        print(f"OK - {excluded} issues fechadas antigas ignoradas")
 
+    cutoff = _cutoff_date()
+    if cutoff is None:
+        return filtered
 
-def _to_bool(value: Any) -> Optional[bool]:
-    if value is None or value == "":
-        return None
-    text = str(value).strip().lower()
-    if text in {"sim", "yes", "true", "1", "s"}:
-        return True
-    if text in {"nao", "não", "no", "false", "0", "n"}:
-        return False
-    return None
-
-
-def _to_int(value: Any) -> Optional[int]:
-    if value is None or value == "":
-        return None
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _to_datetime(value: Any) -> Optional[str]:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day).isoformat()
-    text = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(text, fmt).isoformat()
-        except ValueError:
+    kept: List[Dict[str, Any]] = []
+    before = 0
+    for issue in filtered:
+        created = parse_issue_datetime(issue.get("createdDate", ""))
+        if created is not None and created < cutoff:
+            before += 1
             continue
-    return text
-
-
-def _convert_field(db_col: str, raw: Any) -> Any:
-    if db_col in BOOL_FIELDS:
-        return _to_bool(raw)
-    if db_col in INT_FIELDS:
-        return _to_int(raw)
-    if db_col in DATETIME_FIELDS:
-        return _to_datetime(raw)
-    if raw is None:
-        return None
-    if isinstance(raw, (datetime, date)):
-        return _to_datetime(raw)
-    return str(raw).strip()
-
-
-def _build_issue_row(
-    row: Sequence[Any],
-    *,
-    iid_index: int,
-    repo_index: Optional[int],
-    field_cols: Dict[str, int],
-    synced_at: str,
-) -> Optional[Dict[str, Any]]:
-    iid = _to_int(_row_value(row, iid_index))
-    if not iid:
-        return None
-
-    repo_raw = _row_value(row, repo_index)
-    repo = str(repo_raw).strip() if repo_raw not in (None, "") else "contratos_v2"
-    if not repo:
-        repo = "contratos_v2"
-
-    record: Dict[str, Any] = {
-        "issue_key": f"{repo}:{iid}",
-        "gitlab_repo": repo,
-        "gitlab_iid": iid,
-        "synced_at": synced_at,
-        "updated_at": synced_at,
-    }
-
-    for db_col, col_index in field_cols.items():
-        if db_col in {"gitlab_iid"}:
-            continue
-        record[db_col] = _convert_field(db_col, _row_value(row, col_index))
-
-    return record
-
-
-def _extract_issue_rows(ws: Worksheet) -> List[Dict[str, Any]]:
-    _, data_start, header_map = _resolve_layout(ws)
-    field_cols = _field_column_map(header_map)
-
-    iid_col = header_map.get("id") or header_map.get("#")
-    if not iid_col:
-        raise SystemExit("Coluna ID ausente na aba Dados")
-
-    iid_index = iid_col - 1
-    repo_col = header_map.get("repositorio")
-    repo_index = repo_col - 1 if repo_col else None
-
-    synced_at = _utc_now()
-    rows: List[Dict[str, Any]] = []
-    max_col = ws.max_column
-
-    print(f"OK - Lendo linhas {data_start}..{ws.max_row} ({max_col} colunas)")
-
-    for row_num, row in enumerate(
-        ws.iter_rows(
-            min_row=data_start,
-            max_row=ws.max_row,
-            min_col=1,
-            max_col=max_col,
-            values_only=True,
-        ),
-        start=data_start,
-    ):
-        record = _build_issue_row(
-            row,
-            iid_index=iid_index,
-            repo_index=repo_index,
-            field_cols=field_cols,
-            synced_at=synced_at,
-        )
-        if record:
-            rows.append(record)
-
-        if row_num % 500 == 0 and row_num > data_start:
-            print(f"OK - {len(rows)} issues lidas (linha {row_num})")
-
-    return rows
-
-
-def _dedupe_issue_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Remove issue_key repetida no lote (Postgres rejeita upsert com duplicata no mesmo comando)."""
-    seen: Dict[str, Dict[str, Any]] = {}
-    duplicates: List[str] = []
-
-    for record in rows:
-        key = str(record["issue_key"])
-        if key in seen:
-            duplicates.append(key)
-        seen[key] = record
-
-    if duplicates:
-        unique_dupes = sorted(set(duplicates))
-        sample = ", ".join(unique_dupes[:8])
-        suffix = f" (+{len(unique_dupes) - 8} outras)" if len(unique_dupes) > 8 else ""
-        print(
-            f"AVISO - {len(duplicates)} linhas duplicadas no Excel "
-            f"({len(unique_dupes)} issue_keys). Mantida a ultima ocorrencia. "
-            f"Ex.: {sample}{suffix}"
-        )
-
-    return list(seen.values())
-
-
-def _dedupe_releases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    seen: Dict[tuple[str, str], Dict[str, Any]] = {}
-    for record in rows:
-        key = (str(record["repositorio"]), str(record["versao"]))
-        seen[key] = record
-    return list(seen.values())
+        kept.append(issue)
+    if before:
+        print(f"OK - {before} issues criadas antes de {cutoff:%d/%m/%Y} ignoradas")
+    return kept
 
 
 class SupabaseSync:
@@ -382,7 +143,7 @@ class SupabaseSync:
         response = requests.post(
             f"{self.base}/sync_runs",
             headers={**self.headers, "Prefer": "return=representation"},
-            json={"source": "excel", "status": "running"},
+            json={"source": "json", "status": "running"},
             timeout=30,
         )
         if not response.ok:
@@ -415,6 +176,14 @@ class SupabaseSync:
             timeout=30,
         )
         response.raise_for_status()
+
+
+def _dedupe_releases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for record in rows:
+        key = (str(record["repositorio"]), str(record["versao"]))
+        seen[key] = record
+    return list(seen.values())
 
 
 def _load_releases(path: Path) -> List[Dict[str, Any]]:
@@ -477,7 +246,16 @@ def _load_dotenv() -> None:
         return
 
 
-def sync_excel_to_supabase(excel_path: Path, include_releases: bool = True) -> int:
+def sync_issues_to_supabase(
+    issues: Optional[List[Dict[str, Any]]] = None,
+    *,
+    json_path: Optional[Path] = None,
+    include_releases: bool = True,
+    enable_git: bool = True,
+) -> int:
+    """Processa issues em memoria e sincroniza com o Supabase (sem Excel).
+
+    Se ``issues`` for None, carrega de ``json_path`` (ou config.ISSUES_JSON)."""
     _load_dotenv()
     url = os.environ.get("SUPABASE_URL", "").strip()
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
@@ -486,17 +264,14 @@ def sync_excel_to_supabase(excel_path: Path, include_releases: bool = True) -> i
             "Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY em .env na raiz do workspace (mgi-workspace/.env)"
         )
 
-    if not excel_path.exists():
-        raise SystemExit(f"Excel nao encontrado: {excel_path}")
+    if issues is None:
+        path = _issues_json_path(json_path)
+        print(f"OK - Carregando issues de {path}")
+        issues = _load_issues_json(path)
 
-    print(f"OK - Carregando {excel_path}")
-    wb = load_workbook(excel_path, data_only=True)
-    if DADOS_SHEET not in wb.sheetnames:
-        raise SystemExit(f"Aba '{DADOS_SHEET}' ausente no Excel")
-
-    ws = wb[DADOS_SHEET]
-    rows = _dedupe_issue_rows(_extract_issue_rows(ws))
-    wb.close()
+    issues = _filter_issues_for_sync(issues)
+    print(f"OK - Processando {len(issues)} issues em memoria")
+    rows = build_issue_records(issues, enable_git=enable_git)
     print(f"OK - {len(rows)} issues unicas preparadas")
 
     client = SupabaseSync(url, key)
@@ -520,7 +295,7 @@ def sync_excel_to_supabase(excel_path: Path, include_releases: bool = True) -> i
                 status="success",
                 rows=upserted,
                 releases=release_count,
-                message=f"sync from {excel_path.name}",
+                message="sync from gitlab_issues_raw.json",
             )
         print(f"OK - Sync concluido: {upserted} issues")
         return upserted
@@ -537,12 +312,21 @@ def sync_excel_to_supabase(excel_path: Path, include_releases: bool = True) -> i
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sync Excel Dados -> Supabase")
-    parser.add_argument("--excel", type=Path, default=None)
+    parser = argparse.ArgumentParser(description="Sync issues GitLab/JSON -> Supabase")
+    parser.add_argument("--json", type=Path, default=None, help="Caminho do gitlab_issues_raw.json")
     parser.add_argument("--sem-releases", action="store_true")
+    parser.add_argument(
+        "--sem-git",
+        action="store_true",
+        help="Desativa detectores Git (area/tipo/dev) — usa apenas titulo/labels",
+    )
     args = parser.parse_args()
 
-    sync_excel_to_supabase(_excel_path(args.excel), include_releases=not args.sem_releases)
+    sync_issues_to_supabase(
+        json_path=args.json,
+        include_releases=not args.sem_releases,
+        enable_git=not args.sem_git,
+    )
     return 0
 
 

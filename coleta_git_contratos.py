@@ -252,13 +252,19 @@ class GitColeta:
 if __name__ == '__main__':
     import sys
 
-    # Configuração - ambos repositórios
-    REPOS = [
-        (r"\\wsl.localhost\Ubuntu\root\MGI\contratos_v2", "contratos_v2"),
-        (r"\\wsl.localhost\Ubuntu\root\MGI\contratos", "contratos"),
-    ]
-    OUTPUT_FILE = r"D:\MGI-Relatórios\gitlab_git_data.json"
-    DIAS = 30
+    # Configuração centralizada (config.py) com fallback legado
+    try:
+        import config as _cfg
+        REPOS = list(_cfg.REPOS)
+        OUTPUT_FILE = str(_cfg.GIT_DATA_JSON)
+        DIAS = _cfg.SINCE_DAYS
+    except Exception:
+        REPOS = [
+            (r"\\wsl.localhost\Ubuntu\root\MGI\contratos_v2", "contratos_v2"),
+            (r"\\wsl.localhost\Ubuntu\root\MGI\contratos", "contratos"),
+        ]
+        OUTPUT_FILE = r"D:\MGI-Relatórios\gitlab_git_data.json"
+        DIAS = 30
 
     # Se passado via linha de comando
     if len(sys.argv) > 1:
