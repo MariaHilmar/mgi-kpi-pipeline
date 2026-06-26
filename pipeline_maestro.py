@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Pipeline Maestro - Orquestra coleta de dados GitLab e consolidacao em Excel
-Integra: coleta_git_contratos.py (MULTIPLOS REPOS) + JSON issues + process_gitlab_issues_v2.py
+Pipeline Maestro - Orquestra coleta de dados GitLab e sincronizacao com o Supabase
+Integra: coleta_git_contratos.py (MULTIPLOS REPOS) + JSON issues + sync_supabase.py
 
 Fluxo:
 1. Coleta dados Git de contratos_v2 E contratos (consolidado)
 2. Carrega issues do JSON (gitlab_issues_raw.json)
-3. Processa issues com openpyxl (protegendo colunas)
-4. Consolida tudo em MGI_Dashboard.xlsx
+3. Processa issues em memoria (taxonomia + detectores Git)
+4. Sincroniza issues e releases direto no Supabase (sem Excel)
 """
 
 import json
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 try:
     import config as mgi_config
     from coleta_git_contratos import GitColeta
-    from process_gitlab_issues_v2 import process_issues, parse_date
+    from sync_supabase import sync_issues_to_supabase
     from atualizar_gitlab_issues import validar_json_local
     from log_maintenance import limpar_logs_antigos
     from logging_utils import configure_logging, get_logger
@@ -38,7 +38,6 @@ class PipelineMaestro:
         self.repo_path = Path(config['repo_path'])
         self.output_dir = Path(config['output_dir'])
         self.issues_json = Path(config['issues_json_path'])
-        self.excel_output = Path(config['excel_output_path'])
         self.data_input = data_input  # Data do batch script
         self.all_modules = all_modules
         self.initial_load = initial_load
@@ -137,77 +136,34 @@ class PipelineMaestro:
             else:
                 issues = []
 
-            # Passa issues ao processador; filtro de fechadas antigas e de data
-            # para novas insercoes sao aplicados em process_gitlab_issues_v2
+            # Filtros (fechadas antigas e data de corte) sao aplicados no sync.
             self.logger.info(f"OK - Issues carregadas: {len(issues)}")
             return issues
         except Exception as e:
             self.logger.error(f"ERRO carregando issues: {e}")
             return []
 
-    def processar_issues_excel(self, issues: List[Dict]) -> bool:
-        """Processa issues e exporta para Excel"""
-        self.logger.info("\n[EXCEL] ETAPA 3: Processamento de Issues")
+    def sincronizar_supabase(self, issues: List[Dict]) -> bool:
+        """Processa issues em memoria e sincroniza direto no Supabase (sem Excel)."""
+        self.logger.info("\n[SUPABASE] ETAPA 3: Processamento e sync de Issues")
         self.logger.info("=" * 70)
         try:
-            excel_file = str(self.excel_output)
-            self.logger.info(f"Excel de destino: {excel_file}")
-
-            # Converter issues para o formato esperado pelo processador
-            issues_processadas = self._converter_issues(issues)
-
-            # Converter data do formato DD/MM/YYYY para datetime (filtro de corte)
-            cutoff_date = None
-            if self.data_input:
-                try:
-                    cutoff_date = datetime.strptime(self.data_input, '%d/%m/%Y')
-                except ValueError:
-                    self.logger.warning(f"Data de entrada invalida, usando padrao: {self.data_input}")
-
-            # Passa issues em memoria e caminho absoluto do Excel (sem depender do cwd)
-            result = process_issues(
-                cutoff_date=cutoff_date,
-                issues=issues_processadas,
-                excel_file=excel_file,
-                all_modules=self.all_modules,
-                initial_load=self.initial_load,
-                full_refresh=self.full_refresh,
+            fast = os.environ.get("MGI_FAST_REPO_SYNC", "0").lower() not in ("0", "false", "no")
+            upserted = sync_issues_to_supabase(
+                issues=issues,
+                include_releases=True,
+                enable_git=not fast,  # detectores Git ativos por padrao
             )
-            if result is None:
-                self.logger.error("ERRO: processamento de issues retornou vazio")
-                return False
-
-            self.logger.info(
-                f"OK - Issues processadas (atualizadas={result.get('updated_existing', 0)}, "
-                f"novas={result.get('new_added', 0)})"
-            )
+            self.issues_sincronizadas = upserted
+            self.logger.info(f"OK - {upserted} issues sincronizadas no Supabase")
             self.logger.info("OK - Processamento concluido")
             return True
-        except Exception as e:
-            self.logger.error(f"ERRO processando issues: {e}", exc_info=True)
+        except SystemExit as e:
+            self.logger.error(f"ERRO de configuracao no sync: {e}")
             return False
-
-    @staticmethod
-    def _converter_issues(issues: List[Dict]) -> List[Dict]:
-        """Converte issues para formato esperado por process_gitlab_issues_v2"""
-        convertidas = []
-        for issue in issues:
-            convertida = {
-                'id': issue.get('id'),
-                'title': issue.get('title', ''),
-                'description': issue.get('description', ''),
-                'createdDate': issue.get('createdDate', ''),
-                'updatedDate': issue.get('updatedDate', ''),
-                'closedDate': issue.get('closedDate', ''),
-                'state': issue.get('state', ''),
-                'author': issue.get('author', {}),
-                'assignees': issue.get('assignees', []),
-                'milestone': issue.get('milestone', {}),
-                'labels': issue.get('labels', []),
-                'merge_requests_count': issue.get('merge_requests_count', 0),
-            }
-            convertidas.append(convertida)
-        return convertidas
+        except Exception as e:
+            self.logger.error(f"ERRO sincronizando issues: {e}", exc_info=True)
+            return False
 
     def gerar_relatorio_final(self, git_stats, issues_count):
         """Gera relatorio final de execucao"""
@@ -224,8 +180,8 @@ class PipelineMaestro:
                 'processamento_issues': {
                     'total': issues_count
                 },
-                'excel': {
-                    'arquivo': str(self.excel_output),
+                'supabase': {
+                    'issues_sincronizadas': getattr(self, 'issues_sincronizadas', 0),
                     'atualizado': datetime.now().isoformat()
                 }
             }
@@ -294,9 +250,9 @@ class PipelineMaestro:
             self.logger.error("\nERRO: Nenhuma issue carregada. Abortando.")
             return False
 
-        # Processar issues
-        if not self.processar_issues_excel(issues):
-            self.logger.error("\nERRO: Processamento de issues falhou. Abortando.")
+        # Processar issues e sincronizar no Supabase
+        if not self.sincronizar_supabase(issues):
+            self.logger.error("\nERRO: Sincronizacao de issues falhou. Abortando.")
             return False
 
         # Gerar relatorio final
@@ -310,7 +266,7 @@ class PipelineMaestro:
         self.logger.info(f"   Branches: {git_stats.get('branches_total', 0)}")
         self.logger.info(f"   Releases: {git_stats.get('releases_total', 0)}")
         self.logger.info(f"   Issues: {len(issues)}")
-        self.logger.info(f"   Excel: {self.excel_output}")
+        self.logger.info(f"   Sincronizadas no Supabase: {getattr(self, 'issues_sincronizadas', 0)}")
         self.logger.info(f"\nData/Hora Fim: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         return True
 
@@ -350,7 +306,6 @@ def main():
         'repo_path': mgi_config.REPOS[0][0],
         'output_dir': str(mgi_config.BASE_DIR),
         'issues_json_path': str(mgi_config.ISSUES_JSON),
-        'excel_output_path': str(mgi_config.EXCEL_OUTPUT),
     }
 
     # Permitir override via argumentos
@@ -360,8 +315,6 @@ def main():
         pipeline_config['output_dir'] = argv[1]
     if len(argv) > 2:
         pipeline_config['issues_json_path'] = argv[2]
-    if len(argv) > 3:
-        pipeline_config['excel_output_path'] = argv[3]
 
     # Executar pipeline
     maestro = PipelineMaestro(
