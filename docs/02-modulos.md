@@ -1,0 +1,99 @@
+# Módulos
+
+## Orquestração e sync
+
+### `pipeline_maestro.py`
+Entry point. Classe `PipelineMaestro` orquestra validação → coleta Git →
+carregamento de issues → processamento/sync no Supabase → relatório. Lê flags de
+CLI (`--full`, `--all-modules`, `--initial-load`) e variáveis de ambiente, e
+aceita uma data via `stdin` (enviada pelos scripts `.bat`).
+
+### `sync_supabase.py`
+Coração do sync. Funções principais:
+
+- `sync_issues_to_supabase(issues, include_releases, enable_git)` — carrega o
+  `.env`, valida `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, filtra as issues,
+  monta os records (`build_issue_records`) e faz upsert.
+- `SupabaseSync` — cliente PostgREST:
+  - `upsert_issues` — `POST /issues?on_conflict=issue_key` em lotes de 200.
+  - `upsert_releases` — `POST /releases?on_conflict=repositorio,versao`.
+  - `start_sync_run` / `finish_sync_run` — registra cada execução em
+    `public.sync_runs` (status `running` → `success`/`error`).
+- Header `Prefer: resolution=merge-duplicates,return=minimal` garante **upsert**
+  (preservando campos não enviados).
+
+### `processar_issues_memoria.py`
+Converte cada issue crua em um **record com as colunas exatas de
+`public.issues`**. `build_issue_records` deduplica por `issue_key` (última
+ocorrência vence). Reaproveita os detectores Git e a taxonomia. Campos manuais
+(`situacao_analise`, `desenvolvedor_futuro`, `observacao_geral`, `chamado`,
+`priorizar`, `epico`) são **omitidos de propósito** para o upsert não
+sobrescrever o que foi preenchido à mão no Supabase.
+
+## Derivação de campos
+
+### `issue_fields.py`
+Lógica pura (sem Excel/openpyxl). Deriva:
+
+- Datas: `parse_date`, `derive_date_fields` (criado/fechado, ano/mês, lead time,
+  idade em dias, `sla_mais_90_dias`).
+- Taxonomia de título: `extract_module`, `normalized_module`,
+  `extract_functional_area`.
+- Labels GitLab → colunas: `parse_labels` (tipo, status, equipe, parceria,
+  prioridade, solicitante, alteração de escopo).
+- `faixa_idade` (0-30 / 31-60 / 61-90 / 91-120 / +120 dias).
+- `quality_fields` (delega à `taxonomy.assess_row_quality`).
+
+### `taxonomy.py`
+Normalização de módulos/áreas (canônicos e buckets) e regras de qualidade dos
+dados (`assess_row_quality`: categoria, módulo_ok, área_ok, padrão de título,
+confiança da área).
+
+### `issue_keys.py`
+Chaves compostas para issues de múltiplos projetos. Define `issue_key =
+"<repo_display>:<iid>"`, slugs/aliases de repositório (`contratos_v2` → "Contratos
+v2", `contratos` → "Contratos v1"), URLs de work item e paths WSL.
+
+### `issue_filters.py`
+`filtrar_issues_fechadas_antigas` (corte por dias desde fechamento) e
+`parse_issue_datetime` (datas ISO 8601 ou humanizadas).
+
+## Coleta de dados
+
+### `atualizar_gitlab_issues.py`
+Baixa issues via **API REST do GitLab** (`/projects/:id/issues`, paginado) para
+todos os projetos em `config.GITLAB_PROJECTS`. Mapeia a resposta para o formato
+do pipeline — atenção: usa o **IID** do projeto (`#1289`), não o ID global — e
+grava `gitlab_issues_raw.json`. Requer `GITLAB_TOKEN` (global) ou tokens por
+repo. Detecta JSON sintético/de teste.
+
+### `coleta_git_contratos.py`
+Classe `GitColeta`: executa `git log` / `git branch` / `git tag` em cada repo
+local (WSL), extrai commits (últimos N dias), branches e releases (tags,
+ordenadas por versão semântica) e consolida tudo em `gitlab_git_data.json`. As
+releases viram linhas em `public.releases`.
+
+## Detectores (enriquecimento via Git)
+
+| Módulo | Papel |
+|--------|-------|
+| `detectar_area_funcional.py` | Infere a **Área Funcional** combinando título e sinais do repositório Git. |
+| `inferir_tipo_issue.py` | Infere o **Tipo** da issue (quando não há label `tipo::`). |
+| `enriquecer_dev_git.py` | Enriquecimento **Dev/Git**: branch, nº de commits, último commit, autor, MRs do GitLab, flag "mergeado" e desenvolvedor resolvido. |
+
+Todos são opcionais: com `MGI_FAST_REPO_SYNC=1` (ou `--sem-git` no
+`sync_supabase.py`) o processamento usa apenas título e labels.
+
+## Infraestrutura
+
+| Módulo | Papel |
+|--------|-------|
+| `config.py` | Configuração centralizada via env vars (paths, repos, filtros, tokens, modos). |
+| `logging_utils.py` | `configure_logging` / `get_logger` (console + arquivo rotacionado). |
+| `log_maintenance.py` | Remove logs/relatórios além da retenção. |
+
+## Legado (não usado no fluxo atual)
+
+`process_gitlab_issues_v2.py`, geradores de gráfico/Excel e `excel_com_save.py`
+permanecem no repositório por histórico, mas **não são chamados** pelo
+`pipeline_maestro.py`.
