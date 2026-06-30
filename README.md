@@ -22,7 +22,7 @@ pipeline_maestro.py  ──►  sync_supabase.sync_issues_to_supabase()
         │                        (issue crua → record Supabase, em memória:
         │                         taxonomia, área, tipo, Dev/Git, qualidade)
         ▼
-Supabase (tabelas issues / releases / sync_runs)
+Supabase (tabelas issues / releases / sync_runs / gitlab_users / issue_participants)
 ```
 
 A derivação de cada campo (datas, lead time, idade, SLA, flags, módulo
@@ -47,6 +47,9 @@ orquestração/agendador que chamam os módulos pelo nome. Principais módulos:
 | `detectar_area_funcional.py` / `inferir_tipo_issue.py` | Inferência de Área e Tipo (Git). |
 | `enriquecer_dev_git.py` | Enriquecimento Dev/Git (branch, commits, MRs). |
 | `issue_filters.py` / `issue_keys.py` | Filtros (data de corte, fechadas antigas) e chaves compostas. |
+| `gitlab_identities.py` | Agrega usuários GitLab e participantes por issue para o sync. |
+| `backfill_profile_gitlab_ids.py` | Vincula `profiles.gitlab_user_id` por e-mail (contas já existentes). |
+| `provision_gitlab_users.py` | Cria contas Supabase a partir de membros GitLab (com `gitlab_user_id`). |
 
 > Os módulos do antigo fluxo Excel (`process_gitlab_issues_v2.py`,
 > `gerar_graficos_dashboard.py`, `excel_com_save.py`, etc.) permanecem no
@@ -86,6 +89,13 @@ raiz do workspace (`mgi-workspace/.env`).
 ## Execução
 
 ```bash
+# Sync incremental de issues (novas + alteradas — merge no JSON local)
+python atualizar_gitlab_issues.py
+python atualizar_gitlab_issues.py -i
+
+# Carga completa de issues (substitui gitlab_issues_raw.json)
+python atualizar_gitlab_issues.py --full
+
 # Execução incremental padrão (data opcional via argumento ou stdin)
 python pipeline_maestro.py
 
@@ -102,6 +112,10 @@ python pipeline_maestro.py --initial-load
 python sync_supabase.py
 python sync_supabase.py --json "D:\caminho\gitlab_issues_raw.json"
 python sync_supabase.py --sem-git --sem-releases
+
+# Vincular perfis do dashboard ao GitLab (após migration 012)
+python backfill_profile_gitlab_ids.py --dry-run
+python backfill_profile_gitlab_ids.py
 ```
 
 ## Testes
@@ -117,6 +131,7 @@ O CI (`.gitlab-ci.yml`) roda `pytest` a cada push/MR.
 
 ## Banco de dados (Supabase)
 
-O schema versionado fica em `../supabase/migrations`. As migrations `006`/`007`
-endurecem o schema (idade/SLA calculados no banco, tipos, menor privilégio para
-`anon`). Aplicar via SQL Editor do Supabase ou `supabase db push`.
+O schema versionado fica em `../supabase/migrations` (até **012** — identidades GitLab).
+Aplicar via SQL Editor do Supabase ou `supabase db push`.
+Contrato completo: [03-integracao-dashboard.md](docs/03-integracao-dashboard.md) e
+`mgi-kpi-dashboard/docs/10-identidades-gitlab.md`.

@@ -17,8 +17,8 @@ def _issue(**kwargs):
         "createdDate": "2025-01-10T09:00:00",
         "closedDate": "",
         "labels": ["tipo::Bug", "priority::Alta", "Parceria::SERPRO"],
-        "author": {"name": "Ana"},
-        "assignees": [{"name": "Bob"}],
+        "author": {"id": 101, "username": "ana", "name": "Ana"},
+        "assignees": [{"id": 202, "username": "bob", "name": "Bob"}],
         "milestone": {"title": "Sprint 5"},
         "merge_requests_count": 2,
     }
@@ -41,6 +41,8 @@ def test_record_basico_sem_git():
     assert rec["sprint"] == "Sprint 5"
     assert rec["assignee"] == "Bob"
     assert rec["autor"] == "Ana"
+    assert rec["gitlab_author_id"] == 101
+    assert rec["gitlab_assignee_ids"] == [202]
     assert rec["aberto"] is True
     assert rec["gitlab_mrs"] == 2
 
@@ -87,6 +89,7 @@ def test_tipo_inferido_quando_sem_label():
 def test_desenvolvedor_usa_assignee_sem_git():
     rec = p.build_issue_record(_issue(), today=date(2025, 3, 1))
     assert rec["desenvolvedor"] == "Bob"
+    assert rec["gitlab_developer_id"] == 202
     assert rec["dev_tem_branch"] == "Não"
 
 

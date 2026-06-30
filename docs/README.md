@@ -37,6 +37,8 @@ no Supabase. Toda a escrita no banco é feita por este pipeline, usando a
 | [02-modulos.md](02-modulos.md) | Responsabilidade de cada módulo Python. |
 | [03-integracao-dashboard.md](03-integracao-dashboard.md) | Contrato de dados Supabase ↔ dashboard, campos derivados e KPIs. |
 | [04-configuracao-execucao.md](04-configuracao-execucao.md) | Variáveis de ambiente, execução, testes e CI. |
+| [05-agendamento.md](05-agendamento.md) | Task Scheduler — execução automática diária. |
+| [../mgi-kpi-dashboard/docs/10-identidades-gitlab.md](../mgi-kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
 
 ## Atalhos
 

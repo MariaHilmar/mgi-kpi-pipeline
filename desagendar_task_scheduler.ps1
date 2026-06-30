@@ -1,113 +1,42 @@
-# =====================================================================
-# REMOVER AGENDAMENTO - Task Scheduler
-# =====================================================================
-# Script PowerShell para remover a tarefa agendada do Pipeline
-# =====================================================================
-
-# Requer privilégios de administrador
 #Requires -RunAsAdministrator
+param(
+    [string]$TaskName = "MGI-Pipeline-Supabase"
+)
+
+$colors = @{ Success = "Green"; Error = "Red"; Warning = "Yellow" }
 
 Write-Host ""
-Write-Host "╔════════════════════════════════════════════════════════════════════╗"
-Write-Host "║      REMOVER AGENDAMENTO - PIPELINE MAESTRO                       ║"
-Write-Host "╚════════════════════════════════════════════════════════════════════╝"
+Write-Host "REMOVER AGENDAMENTO - $TaskName"
 Write-Host ""
 
-# Cores
-$colors = @{
-    Success = 'Green'
-    Error   = 'Red'
-    Warning = 'Yellow'
-    Info    = 'Cyan'
-}
-
-# Verificar privilégios
 $admin = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($admin)
-
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "❌ Este script requer privilégios de Administrador" -ForegroundColor $colors.Error
-    Write-Host "   Execute novamente com: Run as administrator"
-    Write-Host ""
-    pause
+    Write-Host "ERRO - Execute como Administrador" -ForegroundColor $colors.Error
     exit 1
 }
-
-Write-Host "✓ Privilégios: OK" -ForegroundColor $colors.Success
-Write-Host ""
-
-$TASK_NAME = "MGI-Pipeline-Dashboard"
-
-# =====================================================================
-# VERIFICAR TAREFA
-# =====================================================================
-
-Write-Host "[VERIFICAÇÃO]"
-Write-Host ""
 
 try {
-    $task = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction Stop
-    Write-Host "✓ Tarefa encontrada: $TASK_NAME" -ForegroundColor $colors.Success
-    Write-Host ""
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
 } catch {
-    Write-Host "❌ Tarefa não encontrada: $TASK_NAME" -ForegroundColor $colors.Error
-    Write-Host ""
-    pause
-    exit 1
+    # Tenta nome legado
+    $TaskName = "MGI-Pipeline-Dashboard"
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    } catch {
+        Write-Host "AVISO - Nenhuma tarefa encontrada" -ForegroundColor $colors.Warning
+        exit 0
+    }
 }
 
-# =====================================================================
-# CONFIRMAR REMOÇÃO
-# =====================================================================
-
-Write-Host "⚠️  CUIDADO: Esta ação é irreversível" -ForegroundColor $colors.Warning
-Write-Host ""
-Write-Host "Informações da tarefa:"
-Write-Host "  Nome: $($task.TaskName)"
-Write-Host "  Status: $($task.State)"
-Write-Host ""
-
-$confirm = Read-Host "Tem certeza que deseja remover? Digite 'SIM' para confirmar"
-
+Write-Host "Tarefa encontrada: $($task.TaskName) [$($task.State)]"
+$confirm = Read-Host "Remover? Digite SIM"
 if ($confirm -ne "SIM") {
-    Write-Host ""
-    Write-Host "[CANCELADO]"
-    pause
+    Write-Host "Cancelado."
     exit 0
 }
 
-# =====================================================================
-# REMOVER TAREFA
-# =====================================================================
-
+Unregister-ScheduledTask -TaskName $task.TaskName -Confirm:$false
+Write-Host "OK - Tarefa removida" -ForegroundColor $colors.Success
 Write-Host ""
-Write-Host "[REMOVENDO TAREFA]"
-Write-Host ""
-
-try {
-    Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false
-    Write-Host "✓ Tarefa removida com sucesso!" -ForegroundColor $colors.Success
-    Write-Host ""
-} catch {
-    Write-Host "❌ Erro ao remover tarefa:" -ForegroundColor $colors.Error
-    Write-Host $_.Exception.Message
-    Write-Host ""
-    pause
-    exit 1
-}
-
-# =====================================================================
-# RESULTADO FINAL
-# =====================================================================
-
-Write-Host "═══════════════════════════════════════════════════════════════════"
-Write-Host ""
-Write-Host "✅ AGENDAMENTO REMOVIDO!" -ForegroundColor $colors.Success
-Write-Host ""
-Write-Host "O pipeline não será mais executado automaticamente."
-Write-Host ""
-Write-Host "Você ainda pode executar manualmente com:"
-Write-Host "  📂 Duplo-clique: D:\MGI-Relatorios\executar_pipeline.bat"
-Write-Host ""
-
-pause
+Write-Host "Execucao manual: executar_pipeline.bat"

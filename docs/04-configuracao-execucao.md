@@ -60,6 +60,10 @@ python pipeline_maestro.py --initial-load
 python sync_supabase.py
 python sync_supabase.py --json "D:\caminho\gitlab_issues_raw.json"
 python sync_supabase.py --sem-git --sem-releases
+
+# Vincular perfis existentes (migration 012)
+python backfill_profile_gitlab_ids.py --dry-run
+python backfill_profile_gitlab_ids.py
 ```
 
 ### Configuração do Supabase (PowerShell)

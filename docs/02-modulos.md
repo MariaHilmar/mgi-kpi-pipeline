@@ -15,7 +15,9 @@ Coração do sync. Funções principais:
   `.env`, valida `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, filtra as issues,
   monta os records (`build_issue_records`) e faz upsert.
 - `SupabaseSync` — cliente PostgREST:
+  - `upsert_gitlab_users` — `POST /gitlab_users?on_conflict=id`.
   - `upsert_issues` — `POST /issues?on_conflict=issue_key` em lotes de 200.
+  - `replace_issue_participants` — substitui papéis (`author`, `assignee`, `developer`) por issue.
   - `upsert_releases` — `POST /releases?on_conflict=repositorio,versao`.
   - `start_sync_run` / `finish_sync_run` — registra cada execução em
     `public.sync_runs` (status `running` → `success`/`error`).
@@ -29,6 +31,26 @@ ocorrência vence). Reaproveita os detectores Git e a taxonomia. Campos manuais
 (`situacao_analise`, `desenvolvedor_futuro`, `observacao_geral`, `chamado`,
 `priorizar`, `epico`) são **omitidos de propósito** para o upsert não
 sobrescrever o que foi preenchido à mão no Supabase.
+
+Campos de identidade GitLab (`gitlab_author_id`, `gitlab_assignee_ids`,
+`gitlab_developer_id`) e metadados internos `_participants` / `_gitlab_user_meta`
+são montados em cada record; o sync remove campos `_*` antes do upsert em
+`issues` e grava participantes via `gitlab_identities.py`.
+
+### `gitlab_identities.py`
+- `collect_gitlab_users_from_records` — usuários únicos para `public.gitlab_users`.
+- `build_participant_rows` — linhas de `public.issue_participants`.
+- `enrich_records_with_developer_ids` — resolve dev por e-mail Git ou assignee.
+- `prepare_issue_rows_for_upsert` — remove campos internos antes do POST.
+
+### `backfill_profile_gitlab_ids.py`
+Vincula `profiles.gitlab_user_id` em contas **já existentes**, cruzando e-mail
+do perfil com membros GitLab (API) e `gitlab_users`. Use `--dry-run` antes de
+aplicar.
+
+### `provision_gitlab_users.py`
+Lista membros ativos dos projetos, cria contas no Supabase Auth e preenche
+`profiles.gitlab_user_id` + upsert em `gitlab_users` para usuários novos.
 
 ## Derivação de campos
 
@@ -63,7 +85,8 @@ v2", `contratos` → "Contratos v1"), URLs de work item e paths WSL.
 ### `atualizar_gitlab_issues.py`
 Baixa issues via **API REST do GitLab** (`/projects/:id/issues`, paginado) para
 todos os projetos em `config.GITLAB_PROJECTS`. Mapeia a resposta para o formato
-do pipeline — atenção: usa o **IID** do projeto (`#1289`), não o ID global — e
+do pipeline — inclui **`author.id`**, **`author.username`** e **`assignees[].id`**
+(além dos nomes) — usa o **IID** do projeto (`#1289`), não o ID global — e
 grava `gitlab_issues_raw.json`. Requer `GITLAB_TOKEN` (global) ou tokens por
 repo. Detecta JSON sintético/de teste.
 
@@ -79,7 +102,7 @@ releases viram linhas em `public.releases`.
 |--------|-------|
 | `detectar_area_funcional.py` | Infere a **Área Funcional** combinando título e sinais do repositório Git. |
 | `inferir_tipo_issue.py` | Infere o **Tipo** da issue (quando não há label `tipo::`). |
-| `enriquecer_dev_git.py` | Enriquecimento **Dev/Git**: branch, nº de commits, último commit, autor, MRs do GitLab, flag "mergeado" e desenvolvedor resolvido. |
+| `enriquecer_dev_git.py` | Enriquecimento **Dev/Git**: branch, commits, e-mail do autor (`%ae`), MRs, mergeado e desenvolvedor resolvido. |
 
 Todos são opcionais: com `MGI_FAST_REPO_SYNC=1` (ou `--sem-git` no
 `sync_supabase.py`) o processamento usa apenas título e labels.
