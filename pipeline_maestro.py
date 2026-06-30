@@ -24,6 +24,7 @@ try:
     import config as mgi_config
     from coleta_git_contratos import GitColeta
     from sync_supabase import sync_issues_to_supabase
+    from processar_issues_memoria import resolve_enable_git
     from atualizar_gitlab_issues import validar_json_local
     from log_maintenance import limpar_logs_antigos
     from logging_utils import configure_logging, get_logger
@@ -149,10 +150,15 @@ class PipelineMaestro:
         self.logger.info("=" * 70)
         try:
             fast = os.environ.get("MGI_FAST_REPO_SYNC", "0").lower() not in ("0", "false", "no")
+            git_enabled = resolve_enable_git(not fast)
+            if not fast and not git_enabled:
+                self.logger.warning(
+                    "WSL/Git indisponivel - detectores Git desativados (titulo/labels)"
+                )
             upserted = sync_issues_to_supabase(
                 issues=issues,
                 include_releases=True,
-                enable_git=not fast,  # detectores Git ativos por padrao
+                enable_git=git_enabled,
             )
             self.issues_sincronizadas = upserted
             self.logger.info(f"OK - {upserted} issues sincronizadas no Supabase")
@@ -290,16 +296,8 @@ def main():
         os.environ["MGI_REFRESH_MODE"] = "full"
         mgi_config.REFRESH_MODE = "full"
 
-    # LER DATA DO STDIN (enviado pelo batch script)
+    # Data via stdin era usada pelo fluxo Excel legado; ignorada no sync Supabase.
     data_input = None
-    try:
-        # Tenta ler do stdin
-        input_data = sys.stdin.readline().strip()
-        if input_data:
-            data_input = input_data
-            logger.info(f"[INFO] Data recebida do batch: {data_input}")
-    except (EOFError, OSError, ValueError):
-        pass
 
     # Configuracao padrao (centralizada em config.py / variaveis de ambiente)
     pipeline_config = {

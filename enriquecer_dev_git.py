@@ -49,6 +49,7 @@ class DevGitInfo:
     commits: int
     ultimo_commit: Optional[datetime]
     autor_dev: str
+    autor_email: str
     mr_gitlab: int
     mergeado: str
 
@@ -66,7 +67,7 @@ class GitDevEnricher:
         self.base_branch = base_branch
         self.enabled = enabled
         self._branch_index: Optional[Dict[str, List[str]]] = None
-        self._branch_stats_cache: Dict[str, Tuple[int, Optional[datetime], str]] = {}
+        self._branch_stats_cache: Dict[str, Tuple[int, Optional[datetime], str, str]] = {}
         self._merged_cache: Dict[str, bool] = {}
 
     def enrich(self, issue: Dict) -> DevGitInfo:
@@ -74,7 +75,7 @@ class GitDevEnricher:
         mr_count = _parse_int(issue.get("merge_requests_count"))
 
         if not issue_id or not self.enabled:
-            return DevGitInfo("Não", "", 0, None, "", mr_count, "Não")
+            return DevGitInfo("Não", "", 0, None, "", "", mr_count, "Não")
 
         branches = self._branches_for_issue(issue_id)
 
@@ -82,13 +83,14 @@ class GitDevEnricher:
             merged = False
             if mr_count > 0:
                 merged = self._is_merged_to_master(issue_id, branches)
-            author = self._author_from_commit_grep(issue_id)
+            author, author_email = self._author_from_commit_grep(issue_id)
             return DevGitInfo(
                 "Não",
                 "",
                 0,
                 None,
                 author,
+                author_email,
                 mr_count,
                 "Sim" if merged else "Não",
             )
@@ -96,7 +98,7 @@ class GitDevEnricher:
         merged = self._is_merged_to_master(issue_id, branches)
 
         primary = _pick_primary_branch(branches)
-        commits, last_date, author = self._branch_stats(primary)
+        commits, last_date, author, author_email = self._branch_stats(primary)
 
         return DevGitInfo(
             tem_branch="Sim",
@@ -104,6 +106,7 @@ class GitDevEnricher:
             commits=commits,
             ultimo_commit=last_date,
             autor_dev=author,
+            autor_email=author_email,
             mr_gitlab=mr_count,
             mergeado="Sim" if merged else "Não",
         )
@@ -152,7 +155,7 @@ class GitDevEnricher:
             return []
         return self._branch_index.get(issue_id, [])
 
-    def _branch_stats(self, branch: str) -> Tuple[int, Optional[datetime], str]:
+    def _branch_stats(self, branch: str) -> Tuple[int, Optional[datetime], str, str]:
         if branch in self._branch_stats_cache:
             return self._branch_stats_cache[branch]
 
@@ -168,29 +171,38 @@ class GitDevEnricher:
 
         last_date: Optional[datetime] = None
         author = ""
+        author_email = ""
         authors: Counter = Counter()
+        author_emails: Dict[str, str] = {}
 
         for ref in refs:
             log_output = self._run_git(
-                f"log {ref} -n 80 --format='%aI|%an' 2>/dev/null"
+                f"log {ref} -n 80 --format='%aI|%an|%ae' 2>/dev/null"
             )
             if not log_output.strip():
                 continue
             for line in log_output.splitlines():
-                parts = line.split("|", 1)
-                if len(parts) != 2:
+                parts = line.split("|", 2)
+                if len(parts) != 3:
                     continue
-                date_raw, author_name = parts[0].strip(), parts[1].strip()
+                date_raw, author_name, email_raw = (
+                    parts[0].strip(),
+                    parts[1].strip(),
+                    parts[2].strip(),
+                )
                 authors[author_name] += 1
+                if author_name and email_raw and author_name not in author_emails:
+                    author_emails[author_name] = email_raw
                 parsed = _parse_git_date(date_raw)
                 if parsed and (last_date is None or parsed > last_date):
                     last_date = parsed
             if authors:
                 author = authors.most_common(1)[0][0]
+                author_email = author_emails.get(author, "")
             if commit_count or last_date:
                 break
 
-        stats = (commit_count, last_date, author)
+        stats = (commit_count, last_date, author, author_email)
         self._branch_stats_cache[branch] = stats
         return stats
 
@@ -226,24 +238,31 @@ class GitDevEnricher:
         self._merged_cache[cache_key] = merged
         return merged
 
-    def _author_from_commit_grep(self, issue_id: str) -> str:
+    def _author_from_commit_grep(self, issue_id: str) -> Tuple[str, str]:
         if os.environ.get("MGI_DEV_SKIP_GIT_GREP", "1").lower() not in ("0", "false", "no"):
-            return ""
+            return "", ""
 
         authors: Counter = Counter()
+        author_emails: Dict[str, str] = {}
         patterns = [f"#{issue_id}", f"{issue_id}-", f"Closes #{issue_id}"]
         for pattern in patterns[:2]:
             quoted = shlex.quote(pattern)
             output = self._run_git(
-                f"log --all -i --grep={quoted} -n 50 --format='%an' 2>/dev/null"
+                f"log --all -i --grep={quoted} -n 50 --format='%an|%ae' 2>/dev/null"
             )
             for line in output.splitlines():
-                name = line.strip()
+                parts = line.split("|", 1)
+                if len(parts) != 2:
+                    continue
+                name, email = parts[0].strip(), parts[1].strip()
                 if name:
                     authors[name] += 1
+                    if email and name not in author_emails:
+                        author_emails[name] = email
         if not authors:
-            return ""
-        return authors.most_common(1)[0][0]
+            return "", ""
+        top = authors.most_common(1)[0][0]
+        return top, author_emails.get(top, "")
 
 
 def _normalize_branch_name(raw: str) -> str:
@@ -321,7 +340,7 @@ class MultiRepoDevEnricher:
             info = self._get_enricher(try_repo).enrich(issue)
             if _dev_info_score(info) > _dev_info_score(best):
                 best = info
-        return best or DevGitInfo("Não", "", 0, None, "", 0, "Não")
+        return best or DevGitInfo("Não", "", 0, None, "", "", 0, "Não")
 
 
 def _dev_info_score(info: Optional[DevGitInfo]) -> int:

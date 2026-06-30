@@ -23,8 +23,14 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from gitlab_identities import (
+    build_participant_rows,
+    collect_gitlab_users_from_records,
+    issue_keys_from_records,
+    prepare_issue_rows_for_upsert,
+)
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
-from processar_issues_memoria import build_issue_records
+from processar_issues_memoria import build_issue_records, resolve_enable_git
 
 try:
     import config as _config
@@ -101,6 +107,55 @@ class SupabaseSync:
             "Prefer": "resolution=merge-duplicates,return=minimal",
         }
 
+    def upsert_gitlab_users(self, rows: List[Dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        response = requests.post(
+            f"{self.base}/gitlab_users?on_conflict=id",
+            headers=self.headers,
+            json=rows,
+            timeout=120,
+        )
+        if not response.ok:
+            detail = response.text[:500]
+            raise RuntimeError(
+                f"Erro Supabase gitlab_users ({response.status_code}): {detail}"
+            )
+        return len(rows)
+
+    def replace_issue_participants(self, issue_keys: List[str], rows: List[Dict[str, Any]]) -> int:
+        if issue_keys:
+            keys_filter = f"in.({','.join(json.dumps(key) for key in issue_keys)})"
+            delete_response = requests.delete(
+                f"{self.base}/issue_participants?issue_key={keys_filter}",
+                headers=self.headers,
+                timeout=120,
+            )
+            if not delete_response.ok:
+                detail = delete_response.text[:500]
+                raise RuntimeError(
+                    f"Erro ao limpar issue_participants ({delete_response.status_code}): {detail}"
+                )
+        if not rows:
+            return 0
+        total = 0
+        chunk_size = 500
+        for start in range(0, len(rows), chunk_size):
+            chunk = rows[start : start + chunk_size]
+            response = requests.post(
+                f"{self.base}/issue_participants?on_conflict=issue_key,role,gitlab_user_id",
+                headers=self.headers,
+                json=chunk,
+                timeout=120,
+            )
+            if not response.ok:
+                detail = response.text[:500]
+                raise RuntimeError(
+                    f"Erro Supabase issue_participants ({response.status_code}): {detail}"
+                )
+            total += len(chunk)
+        return total
+
     def upsert_issues(self, rows: List[Dict[str, Any]]) -> int:
         if not rows:
             return 0
@@ -143,7 +198,7 @@ class SupabaseSync:
         response = requests.post(
             f"{self.base}/sync_runs",
             headers={**self.headers, "Prefer": "return=representation"},
-            json={"source": "json", "status": "running"},
+            json={"source": "gitlab", "status": "running"},
             timeout=30,
         )
         if not response.ok:
@@ -176,6 +231,23 @@ class SupabaseSync:
             timeout=30,
         )
         response.raise_for_status()
+
+
+def _notify_dashboard(url: str, secret: str) -> None:
+    """Invalida o cache de KPIs do dashboard após sync bem-sucedido."""
+    endpoint = url.rstrip("/") + "/api/revalidate"
+    try:
+        response = requests.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if response.ok:
+            print(f"OK - Cache do dashboard invalidado ({endpoint})")
+        else:
+            print(f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}")
+    except Exception as exc:
+        print(f"AVISO - Nao foi possivel notificar o dashboard: {exc}")
 
 
 def _dedupe_releases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -270,8 +342,20 @@ def sync_issues_to_supabase(
         issues = _load_issues_json(path)
 
     issues = _filter_issues_for_sync(issues)
-    print(f"OK - Processando {len(issues)} issues em memoria")
-    rows = build_issue_records(issues, enable_git=enable_git)
+    git_enabled = resolve_enable_git(enable_git)
+    if enable_git and not git_enabled:
+        print(
+            "AVISO - WSL/Git indisponivel ou MGI_FAST_REPO_SYNC=1. "
+            "Usando titulo/labels (sem detectores Git).",
+            flush=True,
+        )
+    print(f"OK - Processando {len(issues)} issues em memoria", flush=True)
+    raw_records = build_issue_records(issues, enable_git=git_enabled)
+    synced_at = raw_records[0]["synced_at"] if raw_records else _utc_now()
+    gitlab_users = collect_gitlab_users_from_records(raw_records, synced_at)
+    participant_rows = build_participant_rows(raw_records)
+    rows = prepare_issue_rows_for_upsert(raw_records)
+    issue_keys = issue_keys_from_records(raw_records)
     print(f"OK - {len(rows)} issues unicas preparadas")
 
     client = SupabaseSync(url, key)
@@ -282,7 +366,12 @@ def sync_issues_to_supabase(
         print(f"AVISO - sync_runs indisponivel ({exc}). Continuando upsert...")
 
     try:
+        if gitlab_users:
+            client.upsert_gitlab_users(gitlab_users)
+            print(f"OK - {len(gitlab_users)} identidades GitLab sincronizadas")
         upserted = client.upsert_issues(rows)
+        participant_count = client.replace_issue_participants(issue_keys, participant_rows)
+        print(f"OK - {participant_count} participantes de issues sincronizados")
         release_count = 0
         if include_releases:
             release_rows = _dedupe_releases(_load_releases(_git_data_path()))
@@ -298,6 +387,14 @@ def sync_issues_to_supabase(
                 message="sync from gitlab_issues_raw.json",
             )
         print(f"OK - Sync concluido: {upserted} issues")
+
+        dashboard_url = os.environ.get("DASHBOARD_URL", "").strip()
+        revalidate_secret = os.environ.get("REVALIDATE_SECRET", "").strip()
+        if dashboard_url and revalidate_secret:
+            _notify_dashboard(dashboard_url, revalidate_secret)
+        else:
+            print("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
+
         return upserted
     except Exception as exc:
         if run_id:

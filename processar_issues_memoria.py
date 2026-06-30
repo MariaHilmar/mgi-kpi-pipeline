@@ -13,11 +13,98 @@ preserve valores existentes no Supabase.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Optional
 
+from gitlab_identities import enrich_records_with_developer_ids
 import issue_fields
 from issue_keys import get_gitlab_repo, repo_display_name
+
+try:
+    import config as _config
+except ImportError:
+    _config = None
+
+_WSL_GIT_AVAILABLE: Optional[bool] = None
+_LOCAL_GIT_AVAILABLE: Optional[bool] = None
+
+
+def probe_local_git_repos() -> bool:
+    """True se pelo menos um repo Git local (config.REPOS) esta acessivel."""
+    global _LOCAL_GIT_AVAILABLE
+    if _LOCAL_GIT_AVAILABLE is not None:
+        return _LOCAL_GIT_AVAILABLE
+
+    try:
+        from coleta_git_contratos import GitColeta
+
+        if _config is None or not getattr(_config, "REPOS", None):
+            _LOCAL_GIT_AVAILABLE = False
+            return False
+
+        for repo_path, repo_name in _config.REPOS:
+            if GitColeta(repo_path, repo_name).validar_repo():
+                _LOCAL_GIT_AVAILABLE = True
+                return True
+        _LOCAL_GIT_AVAILABLE = False
+    except Exception:
+        _LOCAL_GIT_AVAILABLE = False
+    return _LOCAL_GIT_AVAILABLE
+
+
+def probe_wsl_git_available(timeout_seconds: int = 8) -> bool:
+    """Verifica se WSL Ubuntu + repo Git respondem (cache em memoria)."""
+    global _WSL_GIT_AVAILABLE
+    if _WSL_GIT_AVAILABLE is not None:
+        return _WSL_GIT_AVAILABLE
+
+    if not probe_local_git_repos():
+        _WSL_GIT_AVAILABLE = False
+        return False
+
+    import subprocess
+
+    from issue_keys import wsl_path_for_repo
+
+    repo_path = wsl_path_for_repo("contratos_v2")
+    cmd = [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "bash",
+        "-lc",
+        f"cd {repo_path} && git rev-parse --git-dir",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        _WSL_GIT_AVAILABLE = result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        _WSL_GIT_AVAILABLE = False
+    return _WSL_GIT_AVAILABLE
+
+
+def resolve_enable_git(requested: bool = True) -> bool:
+    """True se detectores Git devem rodar (respeita MGI_FAST_REPO_SYNC + repos locais)."""
+    if not requested:
+        return False
+    if os.environ.get("MGI_FAST_REPO_SYNC", "0").lower() not in ("0", "false", "no"):
+        return False
+    if not probe_local_git_repos():
+        return False
+    return probe_wsl_git_available()
+
+
+def reset_git_availability_cache() -> None:
+    """Limpa cache de disponibilidade (util em testes)."""
+    global _WSL_GIT_AVAILABLE, _LOCAL_GIT_AVAILABLE
+    _WSL_GIT_AVAILABLE = None
+    _LOCAL_GIT_AVAILABLE = None
 
 try:
     from detectar_area_funcional import AreaDetection, build_detector
@@ -42,8 +129,7 @@ def _utc_now_iso() -> str:
 
 
 def build_detectors(enable_git: bool = True):
-    """Constroi os detectores Git. Com enable_git=False ou imports ausentes,
-    retorna (None, None, None) e o processamento usa apenas titulo/labels."""
+    """Constroi os detectores Git. Com enable_git=False, usa apenas titulo/labels."""
     if not enable_git:
         return None, None, None
     area = build_detector() if build_detector else None
@@ -77,6 +163,75 @@ def _resolve_tipo(issue: Dict, label_tipo: str, tipo_detector) -> str:
     return ""
 
 
+def _parse_gitlab_int(value) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _person_meta(person: Dict) -> Optional[Dict[str, Any]]:
+    user_id = _parse_gitlab_int(person.get("id"))
+    if not user_id:
+        return None
+    return {
+        "id": user_id,
+        "username": (person.get("username") or "").strip() or None,
+        "name": (person.get("name") or "").strip() or None,
+        "email": None,
+    }
+
+
+def _build_gitlab_identity_fields(issue: Dict) -> Dict[str, Any]:
+    author = issue.get("author") if isinstance(issue.get("author"), dict) else {}
+    participants: List[Dict[str, Any]] = []
+    user_meta: List[Dict[str, Any]] = []
+    assignee_ids: List[int] = []
+
+    author_meta = _person_meta(author)
+    author_id = author_meta["id"] if author_meta else None
+    if author_meta:
+        user_meta.append(author_meta)
+        participants.append(
+            {
+                "role": "author",
+                "gitlab_user_id": author_meta["id"],
+                "is_primary": True,
+                "source": "gitlab_api",
+                "display_name": author_meta.get("name") or "",
+            }
+        )
+
+    for index, person in enumerate(issue.get("assignees") or []):
+        if not isinstance(person, dict):
+            continue
+        assignee_meta = _person_meta(person)
+        if not assignee_meta:
+            continue
+        user_meta.append(assignee_meta)
+        assignee_ids.append(assignee_meta["id"])
+        participants.append(
+            {
+                "role": "assignee",
+                "gitlab_user_id": assignee_meta["id"],
+                "is_primary": index == 0,
+                "source": "gitlab_api",
+                "display_name": assignee_meta.get("name") or "",
+            }
+        )
+
+    return {
+        "gitlab_author_id": author_id,
+        "gitlab_developer_id": None,
+        "gitlab_assignee_ids": assignee_ids,
+        "_participants": participants,
+        "_gitlab_user_meta": user_meta,
+    }
+
+
 def _resolve_dev(issue: Dict, dev_enricher) -> Dict[str, Any]:
     mr_count = issue.get("merge_requests_count") or 0
     try:
@@ -100,15 +255,18 @@ def _resolve_dev(issue: Dict, dev_enricher) -> Dict[str, Any]:
             "gitlab_mrs": info.mr_gitlab,
             "dev_mergeado": info.mergeado,
             "desenvolvedor": desenvolvedor,
+            "_dev_author_email": info.autor_email or None,
         }
 
     desenvolvedor = ""
+    assignee_id = None
     for person in issue.get("assignees") or []:
         name = person.get("name") if isinstance(person, dict) else str(person)
         name = (name or "").strip()
-        if name:
+        if name and not desenvolvedor:
             desenvolvedor = name
-            break
+        if isinstance(person, dict) and assignee_id is None:
+            assignee_id = _parse_gitlab_int(person.get("id"))
     return {
         "dev_tem_branch": "Não",
         "dev_branch": "",
@@ -118,6 +276,8 @@ def _resolve_dev(issue: Dict, dev_enricher) -> Dict[str, Any]:
         "gitlab_mrs": mr_count,
         "dev_mergeado": "Não",
         "desenvolvedor": desenvolvedor,
+        "_dev_author_email": None,
+        "_fallback_developer_id": assignee_id,
     }
 
 
@@ -192,6 +352,26 @@ def build_issue_record(
     record["faixa_idade"] = issue_fields.faixa_idade(
         record.get("idade_dias"), record.get("aberto", False)
     )
+    record.update(_build_gitlab_identity_fields(issue))
+
+    fallback_dev_id = record.pop("_fallback_developer_id", None)
+    if fallback_dev_id and not record.get("gitlab_developer_id"):
+        record["gitlab_developer_id"] = fallback_dev_id
+        participants = list(record.get("_participants") or [])
+        if not any(
+            p.get("role") == "developer" and p.get("gitlab_user_id") == fallback_dev_id
+            for p in participants
+        ):
+            participants.append(
+                {
+                    "role": "developer",
+                    "gitlab_user_id": fallback_dev_id,
+                    "is_primary": True,
+                    "source": "assignee_fallback",
+                    "display_name": record.get("desenvolvedor") or "",
+                }
+            )
+        record["_participants"] = participants
 
     return record
 
@@ -210,12 +390,21 @@ def build_issue_records(
     Se nenhum detector for passado explicitamente, eles sao construidos conforme
     enable_git. A ultima ocorrencia de cada issue_key prevalece (paridade com o
     dedupe do sync legado)."""
+    total = len(issues)
+    git_on = resolve_enable_git(enable_git)
+
     if area_detector is None and tipo_detector is None and dev_enricher is None:
-        area_detector, tipo_detector, dev_enricher = build_detectors(enable_git)
+        mode = "Git + titulo/labels" if git_on else "rapido - titulo/labels"
+        print(f"OK - Modo: {mode}", flush=True)
+        area_detector, tipo_detector, dev_enricher = build_detectors(git_on)
+
+    print(f"OK - Iniciando processamento de {total} issues...", flush=True)
 
     synced_at = _utc_now_iso()
     seen: Dict[str, Dict[str, Any]] = {}
-    for issue in issues:
+    progress_step = max(25, total // 20) if total else 1
+
+    for index, issue in enumerate(issues, start=1):
         record = build_issue_record(
             issue,
             area_detector=area_detector,
@@ -226,4 +415,9 @@ def build_issue_records(
         )
         if record:
             seen[record["issue_key"]] = record
-    return list(seen.values())
+        if index == 1 or index == total or index % progress_step == 0:
+            print(f"OK - Processadas {index}/{total} issues...", flush=True)
+
+    records = list(seen.values())
+    enrich_records_with_developer_ids(records)
+    return records
