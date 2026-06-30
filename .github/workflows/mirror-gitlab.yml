@@ -1,8 +1,11 @@
 # Espelha main do GitHub para GitLab a cada push.
 #
-# Secret no GitHub: GITLAB_MIRROR_TOKEN
-# Token no GitLab: Project Access Token com write_repository
-#   https://gitlab.com/mariahilmar-group/mgi-kpi-pipeline/-/settings/access_tokens
+# Secrets no GitHub:
+#   GITLAB_MIRROR_USER   — username do Project Access Token (ex.: project_83796735_bot)
+#   GITLAB_MIRROR_TOKEN  — token gerado no projeto GitLab
+#
+# Criar em:
+# https://gitlab.com/mariahilmar-group/mgi-kpi-pipeline/-/settings/access_tokens
 
 name: Mirror to GitLab
 
@@ -26,13 +29,14 @@ jobs:
 
       - name: Push to GitLab
         env:
+          GITLAB_MIRROR_USER: ${{ secrets.GITLAB_MIRROR_USER }}
           GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
         run: |
-          if [ -z "$GITLAB_MIRROR_TOKEN" ]; then
-            echo "ERRO: defina GITLAB_MIRROR_TOKEN nos secrets do GitHub."
+          if [ -z "$GITLAB_MIRROR_TOKEN" ] || [ -z "$GITLAB_MIRROR_USER" ]; then
+            echo "ERRO: defina GITLAB_MIRROR_USER e GITLAB_MIRROR_TOKEN no GitHub."
             exit 1
           fi
+          TOKEN_ENCODED=$(python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['GITLAB_MIRROR_TOKEN'], safe=''))")
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add gitlab https://gitlab.com/mariahilmar-group/mgi-kpi-pipeline.git
-          git -c "http.extraHeader=PRIVATE-TOKEN: ${GITLAB_MIRROR_TOKEN}" push gitlab HEAD:main
+          git push "https://${GITLAB_MIRROR_USER}:${TOKEN_ENCODED}@gitlab.com/mariahilmar-group/mgi-kpi-pipeline.git" "HEAD:refs/heads/main"
