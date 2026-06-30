@@ -1,0 +1,35 @@
+# Espelha main do GitHub para GitLab sempre que houver push.
+# Segredo necessário no GitHub: GITLAB_MIRROR_TOKEN (PAT GitLab com write_repository).
+
+name: Mirror to GitLab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-gitlab
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to GitLab
+        env:
+          GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_MIRROR_TOKEN" ]; then
+            echo "ERRO: defina o secret GITLAB_MIRROR_TOKEN no repositório GitHub."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add gitlab "https://oauth2:${GITLAB_MIRROR_TOKEN}@gitlab.com/mariahilmar-group/mgi-kpi-pipeline.git"
+          git push gitlab "HEAD:refs/heads/main"
