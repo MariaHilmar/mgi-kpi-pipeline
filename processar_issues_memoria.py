@@ -55,37 +55,12 @@ def probe_local_git_repos() -> bool:
 
 def probe_wsl_git_available(timeout_seconds: int = 8) -> bool:
     """Verifica se WSL Ubuntu + repo Git respondem (cache em memoria)."""
+    del timeout_seconds  # GitColeta valida via WSL com timeout proprio
     global _WSL_GIT_AVAILABLE
     if _WSL_GIT_AVAILABLE is not None:
         return _WSL_GIT_AVAILABLE
 
-    if not probe_local_git_repos():
-        _WSL_GIT_AVAILABLE = False
-        return False
-
-    import subprocess
-
-    from issue_keys import wsl_path_for_repo
-
-    repo_path = wsl_path_for_repo("contratos_v2")
-    cmd = [
-        "wsl",
-        "-d",
-        "Ubuntu",
-        "bash",
-        "-lc",
-        f"cd {repo_path} && git rev-parse --git-dir",
-    ]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        _WSL_GIT_AVAILABLE = result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        _WSL_GIT_AVAILABLE = False
+    _WSL_GIT_AVAILABLE = probe_local_git_repos()
     return _WSL_GIT_AVAILABLE
 
 
