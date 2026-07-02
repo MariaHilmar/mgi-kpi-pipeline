@@ -6,6 +6,7 @@ Exporta como JSON estruturado para pipeline
 Consolidação de múltiplos repositórios na mesma saída
 """
 
+import os
 import subprocess
 import json
 from datetime import datetime
@@ -13,61 +14,75 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import re
 
+try:
+    from issue_keys import wsl_path_for_repo
+except ImportError:
+    def wsl_path_for_repo(repo: str) -> str:
+        paths = {
+            "contratos_v2": "/root/MGI/contratos_v2",
+            "contratos": "/root/MGI/contratos",
+        }
+        return paths.get(repo, "/root/MGI/contratos_v2")
+
+WSL_DISTRO = os.environ.get("MGI_WSL_DISTRO", "Ubuntu")
+
+
 class GitColeta:
     def __init__(self, repo_path: str, repo_name: Optional[str] = None):
         self.repo_path = Path(repo_path)
         self.repo_name = repo_name or Path(repo_path).name
+        self.wsl_repo_path = wsl_path_for_repo(self.repo_name)
         self.data: Dict = {
             'timestamp': datetime.now().isoformat(),
             'repositorio': self.repo_name,
             'caminho': str(repo_path),
+            'wsl_caminho': self.wsl_repo_path,
             'commits': [],
             'branches': [],
             'releases': [],
             'stats': {}
         }
 
-    def run_git(self, cmd: str, timeout: int = 30) -> str:
-        """Executa comando git no repositório.
-
-        Verifica o returncode e loga stderr para evitar falhas silenciosas.
-        """
+    def _run_git(self, git_args: str, timeout: int = 30) -> str:
+        """Executa git dentro do WSL Ubuntu (repos em /root/MGI/...)."""
+        cmd = [
+            "wsl",
+            "-d",
+            WSL_DISTRO,
+            "bash",
+            "-lc",
+            f"cd {self.wsl_repo_path} && git {git_args}",
+        ]
         try:
             result = subprocess.run(
                 cmd,
-                cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                shell=True,
                 timeout=timeout,
             )
             if result.returncode != 0:
-                stderr = (result.stderr or '').strip()
-                print(f"❌ Git retornou codigo {result.returncode} em {self.repo_name}: {stderr}")
+                stderr = (result.stderr or "").strip()
+                if stderr:
+                    print(f"ERRO Git ({self.repo_name}): {stderr}")
                 return ""
             return result.stdout.strip()
         except subprocess.TimeoutExpired:
-            print(f"❌ Timeout ({timeout}s) executando git em {self.repo_name}: {cmd}")
+            print(f"ERRO Timeout ({timeout}s) git em {self.repo_name}: {git_args[:80]}")
             return ""
         except Exception as e:
-            print(f"❌ Erro executando git em {self.repo_name}: {e}")
+            print(f"ERRO executando git em {self.repo_name}: {e}")
             return ""
 
+    def run_git(self, cmd: str, timeout: int = 30) -> str:
+        """Executa comando git no repositório (aceita 'git ...' ou args diretos)."""
+        git_args = cmd.strip()
+        if git_args.startswith("git "):
+            git_args = git_args[4:]
+        return self._run_git(git_args, timeout=timeout)
+
     def validar_repo(self) -> bool:
-        """Verifica se o repositório é acessível e é um repositório Git válido."""
-        try:
-            result = subprocess.run(
-                'git rev-parse --git-dir',
-                cwd=self.repo_path,
-                capture_output=True,
-                text=True,
-                shell=True,
-                timeout=10,
-            )
-            return result.returncode == 0
-        except Exception as e:
-            print(f"❌ Repositorio inacessivel {self.repo_name}: {e}")
-            return False
+        """Verifica se o repositório WSL é acessível e é um repositório Git válido."""
+        return bool(self._run_git("rev-parse --git-dir", timeout=10))
 
     def coleta_commits(self, since_days: int = 30) -> List[Dict[str, str]]:
         """Extrai commits dos últimos N dias"""
