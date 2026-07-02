@@ -13,16 +13,21 @@ direto com o **Supabase**, que por sua vez alimenta o dashboard web
 ## Visão de alto nível
 
 ```
-GitLab (issues / commits)
+GitLab (issues / commits / label events)
         │
         ▼
 mgi-kpi-pipeline  ──►  processamento em memória  ──►  sync_supabase.py
-                                                              │
-                                                              ▼
-                                                       Supabase (Postgres)
-                                                              │
-                                                              ▼
-                                                     mgi-kpi-dashboard (web)
+        │                      │                              │
+        │                      │                              ├── issue_status_events
+        │                      │                              └── issues / releases
+        │                      ▼
+        │               snapshot_issue_status.py
+        │                      │
+        ▼                      ▼
+                       Supabase (Postgres)
+                              │
+                              ▼
+                     mgi-kpi-dashboard (web)
 ```
 
 O dashboard é **somente leitura**: ele nunca altera issues no GitLab nem grava
@@ -38,6 +43,7 @@ no Supabase. Toda a escrita no banco é feita por este pipeline, usando a
 | [03-integracao-dashboard.md](03-integracao-dashboard.md) | Contrato de dados Supabase ↔ dashboard, campos derivados e KPIs. |
 | [04-configuracao-execucao.md](04-configuracao-execucao.md) | Variáveis de ambiente, execução, testes e CI. |
 | [05-agendamento.md](05-agendamento.md) | Task Scheduler — execução automática diária. |
+| [06-status-events.md](06-status-events.md) | Histórico Kanban (`issue_status_events`) e snapshot diário (CFD). |
 | [../mgi-kpi-dashboard/docs/10-identidades-gitlab.md](../mgi-kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
 
 ## Atalhos

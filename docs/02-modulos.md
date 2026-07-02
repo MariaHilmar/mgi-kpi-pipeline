@@ -3,10 +3,10 @@
 ## Orquestração e sync
 
 ### `pipeline_maestro.py`
-Entry point. Classe `PipelineMaestro` orquestra validação → coleta Git →
-carregamento de issues → processamento/sync no Supabase → relatório. Lê flags de
-CLI (`--full`, `--all-modules`, `--initial-load`) e variáveis de ambiente, e
-aceita uma data via `stdin` (enviada pelos scripts `.bat`).
+Entry point. Classe `PipelineMaestro` orquestra validação → coleta Git (WSL) →
+carregamento de issues → processamento/sync no Supabase → status events →
+snapshot diário → relatório. Lê flags de CLI (`--full`, `--all-modules`,
+`--initial-load`) e variáveis de ambiente.
 
 ### `sync_supabase.py`
 Coração do sync. Funções principais:
@@ -59,6 +59,7 @@ Lógica pura (sem Excel/openpyxl). Deriva:
 
 - Datas: `parse_date`, `derive_date_fields` (criado/fechado, ano/mês, lead time,
   idade em dias, `sla_mais_90_dias`).
+- `parse_due_date` / campo `entrega_prevista` a partir de `dueDate` GitLab.
 - Taxonomia de título: `extract_module`, `normalized_module`,
   `extract_functional_area`.
 - Labels GitLab → colunas: `parse_labels` (tipo, status, equipe, parceria,
@@ -91,10 +92,30 @@ grava `gitlab_issues_raw.json`. Requer `GITLAB_TOKEN` (global) ou tokens por
 repo. Detecta JSON sintético/de teste.
 
 ### `coleta_git_contratos.py`
-Classe `GitColeta`: executa `git log` / `git branch` / `git tag` em cada repo
-local (WSL), extrai commits (últimos N dias), branches e releases (tags,
-ordenadas por versão semântica) e consolida tudo em `gitlab_git_data.json`. As
-releases viram linhas em `public.releases`.
+Classe `GitColeta`: executa `git log` / `git branch` / `git tag` **via WSL**
+(`wsl -d Ubuntu bash -lc "cd /root/MGI/... && git ..."`), extrai commits
+(últimos N dias), branches e releases (tags, ordenadas por versão semântica) e
+consolida tudo em `gitlab_git_data.json`. Paths WSL definidos em
+`issue_keys.WSL_REPO_PATHS`. Distribuição WSL: `MGI_WSL_DISTRO` (default
+`Ubuntu`). As releases viram linhas em `public.releases`.
+
+### `status_events.py`
+Coleta `resource_label_events` da API GitLab, filtra labels `status::`, mapeia
+etapas via `flow_stages` e faz upsert em `public.issue_status_events`. Suporta
+modo incremental (`MGI_STATUS_EVENTS_INCREMENTAL=1`) e workers paralelos.
+
+### `snapshot_issue_status.py`
+Chama RPC Supabase `flow_capture_daily_snapshots` para gravar snapshot diário
+de status/etapa em `issue_status_snapshots` (base do CFD histórico no dashboard).
+
+### `flow_stages.py`
+Mapeamento puro `status::` GitLab → etapa Kanban gerencial (`flow_map_etapa`),
+espelhando a lógica SQL do Supabase.
+
+### `backfill_status_events.py`
+Backfill histórico de status events a partir de `public.issues` (default) ou
+JSON local. Gravação incremental a cada 50 issues; flags `--workers`, `--dry-run`,
+`--filtrar`, `--source json`.
 
 ## Detectores (enriquecimento via Git)
 

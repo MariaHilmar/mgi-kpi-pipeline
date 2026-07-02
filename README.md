@@ -8,21 +8,23 @@ web `mgi-kpi-dashboard`. **O Excel não faz mais parte do fluxo.**
 ## Fluxo geral
 
 ```
-GitLab / repos Git (WSL)
+GitLab API + repos Git (WSL Ubuntu: /root/MGI/...)
         │
         ▼
-coleta_git_contratos.py        →  gitlab_git_data.json   (commits, branches, releases)
-atualizar_gitlab_issues.py     →  gitlab_issues_raw.json  (issues via API GitLab)
+atualizar_gitlab_issues.py     →  gitlab_issues_raw.json   (+ sync state incremental)
+coleta_git_contratos.py        →  gitlab_git_data.json     (commits, branches, releases via WSL)
         │
         ▼
 pipeline_maestro.py  ──►  sync_supabase.sync_issues_to_supabase()
         │                        │
-        │                        ▼
-        │                 processar_issues_memoria.build_issue_records()
-        │                        (issue crua → record Supabase, em memória:
-        │                         taxonomia, área, tipo, Dev/Git, qualidade)
+        │                        ├── issue_status_events (historico Kanban GitLab)
+        │                        └── upsert issues / releases / participantes
+        │
+        ├── snapshot_issue_status.py  →  issue_status_snapshots (CFD diario)
+        │
         ▼
-Supabase (tabelas issues / releases / sync_runs / gitlab_users / issue_participants)
+Supabase (issues / releases / sync_runs / gitlab_users / issue_participants /
+          issue_status_events / issue_status_snapshots)
 ```
 
 A derivação de cada campo (datas, lead time, idade, SLA, flags, módulo
@@ -41,8 +43,12 @@ orquestração/agendador que chamam os módulos pelo nome. Principais módulos:
 | `processar_issues_memoria.py` | Constrói os records do Supabase a partir das issues cruas (reaproveita os detectores). |
 | `issue_fields.py` | Derivação pura de campos (datas, lead time, idade, SLA, qualidade) — sem Excel. |
 | `config.py` | Configuração centralizada (paths, flags, tokens) via env vars. |
-| `coleta_git_contratos.py` | Coleta commits/branches/releases dos repos Git. |
-| `atualizar_gitlab_issues.py` | Baixa issues via API GitLab. |
+| `coleta_git_contratos.py` | Coleta commits/branches/releases via **Git no WSL** (`/root/MGI/...`). |
+| `atualizar_gitlab_issues.py` | Baixa issues via API GitLab (inclui `dueDate`, sync incremental). |
+| `status_events.py` | Coleta `resource_label_events` GitLab → `issue_status_events`. |
+| `snapshot_issue_status.py` | Snapshot diario via RPC `flow_capture_daily_snapshots`. |
+| `flow_stages.py` | Mapeamento `status::` GitLab → etapa Kanban gerencial. |
+| `backfill_status_events.py` | Backfill historico de status (Supabase ou JSON). |
 | `taxonomy.py` | Normalização de módulos/áreas e regras de qualidade. |
 | `detectar_area_funcional.py` / `inferir_tipo_issue.py` | Inferência de Área e Tipo (Git). |
 | `enriquecer_dev_git.py` | Enriquecimento Dev/Git (branch, commits, MRs). |
@@ -82,6 +88,10 @@ raiz do workspace (`mgi-workspace/.env`).
 | `MGI_CLOSED_EXCLUDE_DAYS` | `60` | Exclui issues fechadas há mais de N dias. |
 | `MGI_INITIAL_LOAD` | `0` | Carga inicial (inclui histórico, respeitando a data de corte). |
 | `MGI_FAST_REPO_SYNC` | `0` | `1` desliga os detectores Git (área/tipo/Dev) — usa só título/labels. |
+| `MGI_WSL_DISTRO` | `Ubuntu` | Distribuicao WSL usada na coleta Git e detectores. |
+| `MGI_SYNC_STATUS_EVENTS` | `1` | Coleta `issue_status_events` apos o sync. |
+| `MGI_STATUS_EVENTS_INCREMENTAL` | `0` | `1` = so issues alteradas no GitLab (pipeline diario). |
+| `MGI_SYNC_DAILY_SNAPSHOT` | `1` | Grava snapshot diario em `issue_status_snapshots`. |
 | `MGI_SINCE_DAYS` | `30` | Janela de coleta Git. |
 | `GITLAB_URL` / `GITLAB_TOKEN` | `https://gitlab.com` / vazio | Integração GitLab (token nunca no código). |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | — | Necessárias para o sync com o Supabase. |
@@ -131,7 +141,8 @@ O CI (`.gitlab-ci.yml`) roda `pytest` a cada push/MR.
 
 ## Banco de dados (Supabase)
 
-O schema versionado fica em `../supabase/migrations` (até **012** — identidades GitLab).
+O schema versionado fica em `../supabase/migrations` (inclui **027** — status events e snapshot).
 Aplicar via SQL Editor do Supabase ou `supabase db push`.
-Contrato completo: [03-integracao-dashboard.md](docs/03-integracao-dashboard.md) e
+Contrato completo: [03-integracao-dashboard.md](docs/03-integracao-dashboard.md),
+[06-status-events.md](docs/06-status-events.md) e
 `mgi-kpi-dashboard/docs/10-identidades-gitlab.md`.
