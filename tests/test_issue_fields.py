@@ -23,6 +23,12 @@ def test_parse_date_vazio():
     assert f.parse_date("texto invalido") is None
 
 
+def test_parse_due_date():
+    assert f.parse_due_date("2026-03-15") == "2026-03-15"
+    assert f.parse_due_date("") is None
+    assert f.parse_due_date(None) is None
+
+
 def test_extract_module_canonico():
     assert f.extract_module("[PNCP] (Envio) algo") == "PNCP"
     assert f.extract_module("sem tag") == ""
@@ -82,7 +88,9 @@ def test_faixa_idade():
     assert f.faixa_idade(45, True) == "31-60 dias"
     assert f.faixa_idade(80, True) == "61-90 dias"
     assert f.faixa_idade(100, True) == "91-120 dias"
-    assert f.faixa_idade(200, True) == "Mais de 120 dias"
+    assert f.faixa_idade(150, True) == "121-180 dias"
+    assert f.faixa_idade(200, True) == "181-360 dias"
+    assert f.faixa_idade(400, True) == "Mais de 1 ano"
     assert f.faixa_idade(10, False) is None
     assert f.faixa_idade(None, True) is None
 

@@ -8,6 +8,8 @@ Fluxo:
 2. Carrega issues do JSON (gitlab_issues_raw.json)
 3. Processa issues em memoria (taxonomia + detectores Git)
 4. Sincroniza issues e releases direto no Supabase (sem Excel)
+5. Atualiza historico de colunas Kanban (issue_status_events) para issues alteradas
+6. Captura snapshot diario de status (issue_status_snapshots) para CFD historico
 """
 
 import json
@@ -28,6 +30,7 @@ try:
     from atualizar_gitlab_issues import validar_json_local
     from log_maintenance import limpar_logs_antigos
     from logging_utils import configure_logging, get_logger
+    from snapshot_issue_status import capture_daily_snapshot, is_daily_snapshot_enabled
 except ImportError as e:
     print(f"ERRO importando modulos: {e}")
     sys.exit(1)
@@ -155,13 +158,26 @@ class PipelineMaestro:
                 self.logger.warning(
                     "WSL/Git indisponivel - detectores Git desativados (titulo/labels)"
                 )
-            upserted = sync_issues_to_supabase(
+            result = sync_issues_to_supabase(
                 issues=issues,
                 include_releases=True,
                 enable_git=git_enabled,
             )
-            self.issues_sincronizadas = upserted
-            self.logger.info(f"OK - {upserted} issues sincronizadas no Supabase")
+            self.issues_sincronizadas = result.issues_upserted
+            self.status_events_sincronizados = result.status_events_upserted
+            self.status_issues_processadas = result.status_issues_targeted
+            self.logger.info(
+                f"OK - {result.issues_upserted} issues sincronizadas no Supabase"
+            )
+            if result.status_issues_targeted:
+                self.logger.info(
+                    f"OK - status_events: {result.status_events_upserted} eventos "
+                    f"({result.status_issues_targeted} issues consultadas no GitLab)"
+                )
+            else:
+                self.logger.info(
+                    "OK - status_events: nenhuma issue alterada no GitLab nesta execucao"
+                )
             self.logger.info("OK - Processamento concluido")
             return True
         except SystemExit as e:
@@ -169,6 +185,26 @@ class PipelineMaestro:
             return False
         except Exception as e:
             self.logger.error(f"ERRO sincronizando issues: {e}", exc_info=True)
+            return False
+
+    def capturar_snapshot_diario(self) -> bool:
+        """Registra etapa/status atual de cada issue para CFD historico."""
+        self.logger.info("\n[SNAPSHOT] ETAPA 4: Snapshot diario de status (issue_status_snapshots)")
+        self.logger.info("=" * 70)
+        if not is_daily_snapshot_enabled():
+            self.logger.info("AVISO - Snapshot diario desabilitado (MGI_SYNC_DAILY_SNAPSHOT=0)")
+            self.snapshot_issues_registradas = 0
+            return True
+        try:
+            count = capture_daily_snapshot()
+            self.snapshot_issues_registradas = count
+            self.logger.info(
+                f"OK - Snapshot diario: {count} issues registradas em issue_status_snapshots"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"ERRO snapshot diario: {e}", exc_info=True)
+            self.snapshot_issues_registradas = 0
             return False
 
     def gerar_relatorio_final(self, git_stats, issues_count):
@@ -188,6 +224,9 @@ class PipelineMaestro:
                 },
                 'supabase': {
                     'issues_sincronizadas': getattr(self, 'issues_sincronizadas', 0),
+                    'status_events_gravados': getattr(self, 'status_events_sincronizados', 0),
+                    'status_issues_consultadas': getattr(self, 'status_issues_processadas', 0),
+                    'snapshot_issues_registradas': getattr(self, 'snapshot_issues_registradas', 0),
                     'atualizado': datetime.now().isoformat()
                 }
             }
@@ -261,6 +300,10 @@ class PipelineMaestro:
             self.logger.error("\nERRO: Sincronizacao de issues falhou. Abortando.")
             return False
 
+        if not self.capturar_snapshot_diario():
+            self.logger.error("\nERRO: Snapshot diario falhou. Abortando.")
+            return False
+
         # Gerar relatorio final
         self.gerar_relatorio_final(git_stats, len(issues))
 
@@ -273,6 +316,13 @@ class PipelineMaestro:
         self.logger.info(f"   Releases: {git_stats.get('releases_total', 0)}")
         self.logger.info(f"   Issues: {len(issues)}")
         self.logger.info(f"   Sincronizadas no Supabase: {getattr(self, 'issues_sincronizadas', 0)}")
+        self.logger.info(
+            f"   Status events: {getattr(self, 'status_events_sincronizados', 0)} eventos "
+            f"({getattr(self, 'status_issues_processadas', 0)} issues)"
+        )
+        self.logger.info(
+            f"   Snapshot diario: {getattr(self, 'snapshot_issues_registradas', 0)} issues"
+        )
         self.logger.info(f"\nData/Hora Fim: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         return True
 

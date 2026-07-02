@@ -117,6 +117,13 @@ def _resolve_area(issue: Dict, title: str, area_detector) -> "AreaDetection":
     title_area = issue_fields.extract_functional_area(title)
     if area_detector is not None:
         return area_detector.detect(issue, title_area=title_area)
+
+    # Modo rapido (sem Git): ainda infere area por titulo/modulo canonico.
+    if build_detector is not None:
+        from detectar_area_funcional import MultiRepoAreaDetector
+
+        return MultiRepoAreaDetector(enabled=False).detect(issue, title_area=title_area)
+
     if AreaDetection is not None:
         method = "titulo_explicito" if title_area else "none"
         return AreaDetection(title_area, method, 1.0 if title_area else 0.0)
@@ -321,6 +328,9 @@ def build_issue_record(
 
     record.update(
         issue_fields.derive_date_fields(created_date, closed_date, estado, today=today)
+    )
+    record["entrega_prevista"] = issue_fields.parse_due_date(
+        issue.get("dueDate") or issue.get("due_date")
     )
     record.update(_resolve_dev(issue, dev_enricher))
     record.update(issue_fields.quality_fields(title, modulo, area, area_conf))

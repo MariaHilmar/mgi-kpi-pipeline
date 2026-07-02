@@ -1,7 +1,9 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Agenda execucao diaria do pipeline MGI (GitLab -> Supabase) no Task Scheduler.
+    Agenda execucao diaria do pipeline MGI no Task Scheduler:
+    GitLab incremental, sync Supabase, issue_status_events (historico Kanban)
+    e snapshot diario (issue_status_snapshots para CFD).
 
 .PARAMETER Time
     Horario diario no formato HH:mm (padrao 08:10).
@@ -28,7 +30,7 @@ $colors = @{
 
 Write-Host ""
 Write-Host "================================================================"
-Write-Host " AGENDAMENTO - MGI KPI Pipeline (GitLab -> Supabase)"
+Write-Host " AGENDAMENTO - MGI KPI Pipeline (GitLab -> Supabase + status Kanban)"
 Write-Host "================================================================"
 Write-Host ""
 
@@ -48,6 +50,7 @@ Write-Host "Workspace:  $WORKSPACE_DIR"
 Write-Host "Script:     executar_pipeline_silent.bat"
 Write-Host "Tarefa:     $TASK_NAME"
 Write-Host "Horario:    $Time (diario)"
+Write-Host "Fluxo:      GitLab incremental + Supabase + status_events + snapshot diario"
 Write-Host "Usuario:    $RUN_AS_USER"
 Write-Host ""
 
@@ -98,7 +101,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Sync diario GitLab -> Supabase (mgi-kpi-pipeline)" `
+    -Description "Sync diario GitLab -> Supabase + status_events + snapshot Kanban" `
     -Force | Out-Null
 
 Write-Host ""

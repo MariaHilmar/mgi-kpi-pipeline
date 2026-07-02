@@ -105,3 +105,13 @@ class TestMultiRepoAreaDetector:
         result = detector.detect(issue)
         assert result.area == "Infraestrutura"
         assert result.method == "modulo_canonico_default"
+
+    def test_minuta_empenho_prioriza_modulo_sobre_pncp_no_titulo(self) -> None:
+        detector = MultiRepoAreaDetector(enabled=False)
+        issue = {
+            "id": "400",
+            "title": "[Minuta de Empenho] Exibir ID da Compra PNCP na Visualizacao",
+        }
+        result = detector.detect(issue)
+        assert result.area == "Minuta de Empenho"
+        assert result.method == "modulo_canonico_default"

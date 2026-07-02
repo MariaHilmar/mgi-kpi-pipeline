@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -30,12 +31,28 @@ from gitlab_identities import (
     prepare_issue_rows_for_upsert,
 )
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
+from issue_keys import normalize_repo
 from processar_issues_memoria import build_issue_records, resolve_enable_git
+from status_events import (
+    collect_and_upsert_status_events,
+    is_status_events_sync_enabled,
+    log_stage,
+    status_events_issue_limit,
+)
 
 try:
     import config as _config
 except ImportError:
     _config = None
+
+SYNC_STATE_FILENAME = "gitlab_issues_sync_state.json"
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    issues_upserted: int
+    status_events_upserted: int = 0
+    status_issues_targeted: int = 0
 
 
 def _utc_now() -> str:
@@ -97,6 +114,109 @@ def _filter_issues_for_sync(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return kept
 
 
+def _sync_state_path(json_path: Optional[Path] = None) -> Path:
+    return _issues_json_path(json_path).parent / SYNC_STATE_FILENAME
+
+
+def _load_status_event_issue_keys(json_path: Optional[Path] = None) -> Optional[List[str]]:
+    """Chaves gravadas pelo sync incremental GitLab (etapa 0 do pipeline diario)."""
+    state_path = _sync_state_path(json_path)
+    if not state_path.exists():
+        return None
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    keys = data.get("status_event_issue_keys")
+    if keys is None:
+        return None
+    if not isinstance(keys, list):
+        return None
+    return [str(key) for key in keys if key]
+
+
+def issues_for_status_events_from_sync(
+    rows: List[Dict[str, Any]],
+    *,
+    json_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Monta fila de status_events a partir das issues upsertadas neste sync."""
+    targeted = rows
+    use_incremental = os.environ.get("MGI_STATUS_EVENTS_INCREMENTAL", "0").lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    if use_incremental:
+        incremental_keys = _load_status_event_issue_keys(json_path)
+        if incremental_keys is not None:
+            if not incremental_keys:
+                return []
+            key_set = set(incremental_keys)
+            targeted = [row for row in rows if row.get("issue_key") in key_set]
+            print(
+                f"OK - status_events incremental: {len(targeted)} issues "
+                f"(de {len(incremental_keys)} alteradas no GitLab)",
+                flush=True,
+            )
+    return [supabase_row_to_raw_issue(row) for row in targeted]
+
+
+SUPABASE_ISSUES_SELECT = (
+    "issue_key,gitlab_iid,gitlab_repo,estado,criado_em,fechado_em"
+)
+
+
+def _estado_to_gitlab_state(estado: Optional[str]) -> str:
+    if estado == "Aberto":
+        return "opened"
+    if estado == "Fechado":
+        return "closed"
+    return ""
+
+
+def supabase_row_to_raw_issue(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Converte linha de public.issues para o formato esperado por status_events."""
+    criado = str(row.get("criado_em") or "").strip()
+    fechado = str(row.get("fechado_em") or "").strip()
+    iid = row.get("gitlab_iid")
+    repo_label = str(row.get("gitlab_repo") or "").strip()
+    return {
+        "id": str(iid).strip() if iid is not None else "",
+        "gitlab_repo": normalize_repo(repo_label) if repo_label else "",
+        "state": _estado_to_gitlab_state(str(row.get("estado") or "").strip()),
+        "createdDate": criado,
+        "closedDate": fechado,
+        "issue_key": str(row.get("issue_key") or "").strip(),
+    }
+
+
+def load_issues_for_status_events(
+    *,
+    source: str,
+    json_path: Optional[Path] = None,
+    client: Optional["SupabaseSync"] = None,
+    apply_sync_filters: bool = False,
+) -> List[Dict[str, Any]]:
+    """Carrega issues para coleta de status_events (Supabase ou JSON local)."""
+    normalized = (source or "supabase").strip().lower()
+    if normalized == "json":
+        path = _issues_json_path(json_path)
+        print(f"OK - Carregando issues de {path}")
+        issues = _load_issues_json(path)
+    elif normalized == "supabase":
+        if client is None:
+            raise ValueError("client Supabase obrigatorio quando source=supabase")
+        print("OK - Carregando issues de public.issues (Supabase)")
+        issues = client.fetch_all_issues_for_status_events()
+    else:
+        raise ValueError(f"source invalido: {source!r} (use supabase ou json)")
+
+    if apply_sync_filters:
+        issues = _filter_issues_for_sync(issues)
+    return issues
+
+
 class SupabaseSync:
     def __init__(self, url: str, service_key: str) -> None:
         self.base = url.rstrip("/") + "/rest/v1"
@@ -106,6 +226,41 @@ class SupabaseSync:
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates,return=minimal",
         }
+
+    def fetch_all_issues_for_status_events(
+        self,
+        *,
+        page_size: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """Lista todas as issues de public.issues paginadas via PostgREST."""
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            response = requests.get(
+                f"{self.base}/issues",
+                headers=self.headers,
+                params={
+                    "select": SUPABASE_ISSUES_SELECT,
+                    "order": "issue_key",
+                    "limit": str(page_size),
+                    "offset": str(offset),
+                },
+                timeout=120,
+            )
+            if not response.ok:
+                detail = response.text[:500]
+                raise RuntimeError(
+                    f"Erro ao listar issues Supabase ({response.status_code}): {detail}"
+                )
+            batch = response.json()
+            if not batch:
+                break
+            rows.extend(supabase_row_to_raw_issue(row) for row in batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+        print(f"OK - {len(rows)} issues carregadas do Supabase")
+        return rows
 
     def upsert_gitlab_users(self, rows: List[Dict[str, Any]]) -> int:
         if not rows:
@@ -193,6 +348,37 @@ class SupabaseSync:
                 f"Erro Supabase releases ({response.status_code}): {detail}"
             )
         return len(rows)
+
+    def upsert_status_events(self, rows: List[Dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        total = 0
+        chunk_size = 500
+        headers = {
+            **self.headers,
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        }
+        for start in range(0, len(rows), chunk_size):
+            chunk = rows[start : start + chunk_size]
+            response = requests.post(
+                f"{self.base}/issue_status_events?on_conflict=gitlab_event_id",
+                headers=headers,
+                json=chunk,
+                timeout=120,
+            )
+            if not response.ok:
+                detail = response.text[:500]
+                hint = ""
+                if response.status_code == 400 and "42P10" in detail:
+                    hint = (
+                        " Aplique a migration 028_issue_status_events_upsert_constraint.sql "
+                        "(UNIQUE em gitlab_event_id para PostgREST on_conflict)."
+                    )
+                raise RuntimeError(
+                    f"Erro Supabase issue_status_events ({response.status_code}): {detail}{hint}"
+                )
+            total += len(chunk)
+        return total
 
     def start_sync_run(self) -> str:
         response = requests.post(
@@ -324,7 +510,8 @@ def sync_issues_to_supabase(
     json_path: Optional[Path] = None,
     include_releases: bool = True,
     enable_git: bool = True,
-) -> int:
+    sync_status_events: Optional[bool] = None,
+) -> SyncResult:
     """Processa issues em memoria e sincroniza com o Supabase (sem Excel).
 
     Se ``issues`` for None, carrega de ``json_path`` (ou config.ISSUES_JSON)."""
@@ -372,6 +559,39 @@ def sync_issues_to_supabase(
         upserted = client.upsert_issues(rows)
         participant_count = client.replace_issue_participants(issue_keys, participant_rows)
         print(f"OK - {participant_count} participantes de issues sincronizados")
+
+        events_upserted = 0
+        status_issues_targeted = 0
+        should_sync_events = (
+            is_status_events_sync_enabled()
+            if sync_status_events is None
+            else sync_status_events
+        )
+        if should_sync_events:
+            issues_for_events = issues_for_status_events_from_sync(
+                rows,
+                json_path=json_path,
+            )
+            status_issues_targeted = len(issues_for_events)
+            if not issues_for_events:
+                log_stage(
+                    "status_events omitido — nenhuma issue alvo "
+                    "(incremental sem alteracoes no GitLab)"
+                )
+            else:
+                limit = status_events_issue_limit()
+                log_stage(
+                    f"Inicio etapa status_events — {status_issues_targeted} issues alvo"
+                )
+                _, events_upserted = collect_and_upsert_status_events(
+                    issues_for_events,
+                    client.upsert_status_events,
+                    issue_limit=limit if limit > 0 else len(issues_for_events),
+                )
+                log_stage(f"Fim etapa status_events — {events_upserted} eventos gravados")
+        else:
+            print("AVISO - Coleta issue_status_events desabilitada (MGI_SYNC_STATUS_EVENTS=0)")
+
         release_count = 0
         if include_releases:
             release_rows = _dedupe_releases(_load_releases(_git_data_path()))
@@ -386,7 +606,10 @@ def sync_issues_to_supabase(
                 releases=release_count,
                 message="sync from gitlab_issues_raw.json",
             )
-        print(f"OK - Sync concluido: {upserted} issues")
+        print(
+            f"OK - Sync concluido: {upserted} issues, "
+            f"{events_upserted} eventos de status"
+        )
 
         dashboard_url = os.environ.get("DASHBOARD_URL", "").strip()
         revalidate_secret = os.environ.get("REVALIDATE_SECRET", "").strip()
@@ -395,7 +618,11 @@ def sync_issues_to_supabase(
         else:
             print("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
 
-        return upserted
+        return SyncResult(
+            issues_upserted=upserted,
+            status_events_upserted=events_upserted,
+            status_issues_targeted=status_issues_targeted,
+        )
     except Exception as exc:
         if run_id:
             client.finish_sync_run(
@@ -417,12 +644,18 @@ def main() -> int:
         action="store_true",
         help="Desativa detectores Git (area/tipo/dev) — usa apenas titulo/labels",
     )
+    parser.add_argument(
+        "--sem-status-events",
+        action="store_true",
+        help="Nao coleta resource_label_events (issue_status_events)",
+    )
     args = parser.parse_args()
 
     sync_issues_to_supabase(
         json_path=args.json,
         include_releases=not args.sem_releases,
         enable_git=not args.sem_git,
+        sync_status_events=not args.sem_status_events,
     )
     return 0
 

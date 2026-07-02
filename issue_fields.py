@@ -70,6 +70,20 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def parse_due_date(date_str: Optional[str]) -> Optional[str]:
+    """Converte due_date do GitLab (YYYY-MM-DD) em ISO date para Postgres."""
+    if not date_str:
+        return None
+    raw = str(date_str).strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").date().isoformat()
+    except (ValueError, TypeError):
+        parsed = parse_date(raw)
+        return parsed.date().isoformat() if parsed else None
+
+
 def extract_module(title: str) -> str:
     """Extrai o modulo da tag [..] do titulo e normaliza para canonico."""
     tag = taxonomy.extract_module_tag(title or "")
@@ -153,7 +167,11 @@ def faixa_idade(idade_dias: Optional[int], aberto: bool) -> Optional[str]:
         return "61-90 dias"
     if idade_dias <= 120:
         return "91-120 dias"
-    return "Mais de 120 dias"
+    if idade_dias <= 180:
+        return "121-180 dias"
+    if idade_dias <= 360:
+        return "181-360 dias"
+    return "Mais de 1 ano"
 
 
 def derive_date_fields(

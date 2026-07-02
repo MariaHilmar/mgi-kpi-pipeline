@@ -33,6 +33,7 @@ except ImportError:
 
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 from issue_keys import make_issue_key
+from status_events import issue_key_from_raw_issue
 
 # Padroes tipicos do JSON de teste/fabricado (nao vem do GitLab real)
 MARCADORES_JSON_SINTETICO = (
@@ -69,6 +70,18 @@ def _gitlab_projects() -> List[Tuple[str, str]]:
     ]
 
 
+def _issue_keys_from_fetched(fetched: List[Dict]) -> List[str]:
+    keys: List[str] = []
+    seen: set[str] = set()
+    for issue in fetched:
+        key = issue_key_from_raw_issue(issue)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        keys.append(key)
+    return keys
+
+
 def _mapear_issue_api(issue: Dict, gitlab_repo: str) -> Dict:
     """Mapeia resposta da API GitLab para o formato do pipeline."""
     author = issue.get("author") or {}
@@ -84,6 +97,7 @@ def _mapear_issue_api(issue: Dict, gitlab_repo: str) -> Dict:
         "createdDate": issue.get("created_at", ""),
         "updatedDate": issue.get("updated_at", ""),
         "closedDate": issue.get("closed_at", "") or "",
+        "dueDate": issue.get("due_date") or "",
         "state": issue.get("state", ""),
         "author": {
             "id": author.get("id"),
@@ -312,6 +326,7 @@ def _salvar_issues(
     *,
     mode: str,
     stats: Optional[Dict[str, int]] = None,
+    status_event_issue_keys: Optional[List[str]] = None,
 ) -> None:
     destino.parent.mkdir(parents=True, exist_ok=True)
     with open(destino, "w", encoding="utf-8") as handle:
@@ -325,6 +340,8 @@ def _salvar_issues(
     }
     if stats:
         payload["stats"] = stats
+    if status_event_issue_keys is not None:
+        payload["status_event_issue_keys"] = status_event_issue_keys
     with open(state_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
 
@@ -389,7 +406,7 @@ def atualizar_issues(
         print(f"OK - Dry-run: {len(issues)} issues seriam gravadas (modo completo)")
         return True
 
-    _salvar_issues(destino, issues, mode="full", stats={"fetched": len(issues)})
+    _salvar_issues(destino, issues, mode="full", stats={"fetched": len(issues)}, status_event_issue_keys=_issue_keys_from_fetched(issues))
     return True
 
 
@@ -464,6 +481,7 @@ def atualizar_issues_incremental(
             "updated": updated,
             "unchanged": unchanged,
         },
+        status_event_issue_keys=_issue_keys_from_fetched(fetched),
     )
     return True
 

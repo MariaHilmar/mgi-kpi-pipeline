@@ -256,16 +256,14 @@ class AreaFuncionalDetector:
                 return AreaDetection(area, "git_branch", 0.85)
 
         title = issue.get("title", "") or ""
-        area = _infer_area_from_text(title)
-        if area:
-            return AreaDetection(area, "palavras_chave_titulo", 0.75)
 
-        # Fallback: área padrão do módulo canônico.
-        # Aplicado com confiança alta quando o módulo está claro — cobre ~1800 issues
-        # que não têm área explícita no título nem sinal no Git.
         module_area = _infer_default_area_from_canonical_module(title)
         if module_area:
             return AreaDetection(module_area, "modulo_canonico_default", 0.80)
+
+        area = _infer_area_from_text(title)
+        if area:
+            return AreaDetection(area, "palavras_chave_titulo", 0.75)
 
         module_area = _infer_area_from_module(title)
         if module_area:
@@ -504,13 +502,14 @@ class MultiRepoAreaDetector:
                     return AreaDetection(area, "git_branch", 0.85)
 
         title = issue.get("title", "") or ""
-        area = _infer_area_from_text(title)
-        if area:
-            return AreaDetection(area, "palavras_chave_titulo", 0.75)
 
         module_area = _infer_default_area_from_canonical_module(title)
         if module_area:
             return AreaDetection(module_area, "modulo_canonico_default", 0.80)
+
+        area = _infer_area_from_text(title)
+        if area:
+            return AreaDetection(area, "palavras_chave_titulo", 0.75)
 
         module_area = _infer_area_from_module(title)
         if module_area:

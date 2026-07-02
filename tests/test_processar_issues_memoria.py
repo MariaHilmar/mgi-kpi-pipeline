@@ -93,6 +93,27 @@ def test_desenvolvedor_usa_assignee_sem_git():
     assert rec["dev_tem_branch"] == "Não"
 
 
+def test_minuta_empenho_sem_git_infere_area():
+    issue = _issue(
+        title="[Minuta de empenho] Verificar compra nao encontrada",
+        labels=[],
+    )
+    rec = p.build_issue_record(issue, today=date(2025, 3, 1))
+    assert rec["modulo"] == "Minuta de Empenho"
+    assert rec["modulo_normalizado"] == "Minuta de Empenho"
+    assert rec["area_funcional"] == "Minuta de Empenho"
+
+
+def test_minuta_empenho_modulo_canonico_prioriza_area_sobre_pncp_no_titulo():
+    issue = _issue(
+        title="[Minuta de Empenho] Exibir ID da Compra PNCP na Visualizacao da Minuta",
+        labels=[],
+    )
+    rec = p.build_issue_record(issue, today=date(2025, 3, 1))
+    assert rec["modulo"] == "Minuta de Empenho"
+    assert rec["area_funcional"] == "Minuta de Empenho"
+
+
 def test_build_records_dedupe_por_issue_key():
     issues = [
         _issue(id=1, title="[PNCP] (Envio) Primeira"),
