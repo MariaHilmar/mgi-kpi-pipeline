@@ -127,7 +127,12 @@ pytest
 A suíte cobre a derivação de campos (`issue_fields`), a construção de records
 (`processar_issues_memoria`), os filtros e o cliente de sync (`sync_supabase`,
 com `requests` mockado), além das funções puras de taxonomia, datas e chaves.
-O CI (`.gitlab-ci.yml`) roda `pytest` a cada push/MR.
+## Repositório e CI
+
+**Repositório canônico:** [GitHub — MariaHilmar/mgi-kpi-pipeline](https://github.com/MariaHilmar/mgi-kpi-pipeline).  
+Detalhes em [docs/08-repositorio-github.md](docs/08-repositorio-github.md).
+
+Testes: `pytest` localmente. O arquivo `.gitlab-ci.yml` é legado (runner GitLab opcional); o fluxo principal de entrega é via GitHub.
 
 ## Banco de dados (Supabase)
 
