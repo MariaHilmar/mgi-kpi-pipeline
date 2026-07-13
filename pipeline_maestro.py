@@ -13,8 +13,8 @@ Fluxo:
 import json
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List
 
 # Importa os modulos locais
@@ -22,12 +22,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 try:
     import config as mgi_config
-    from coleta_git_contratos import GitColeta
-    from sync_supabase import sync_issues_to_supabase
-    from processar_issues_memoria import resolve_enable_git
     from atualizar_gitlab_issues import validar_json_local
+    from coleta_git_contratos import GitColeta
     from log_maintenance import limpar_logs_antigos
     from logging_utils import configure_logging, get_logger
+    from processar_issues_memoria import resolve_enable_git
+    from sync_supabase import sync_issues_to_supabase
 except ImportError as e:
     print(f"ERRO importando modulos: {e}")
     sys.exit(1)

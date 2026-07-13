@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 
 from inferir_tipo_issue import (
+    BRANCH_TIPO_RULES,
+    TITLE_TIPO_RULES,
     TipoIssueDetector,
     _infer_tipo_from_commits,
     _infer_tipo_from_text,
-    BRANCH_TIPO_RULES,
-    TITLE_TIPO_RULES,
 )
 
 

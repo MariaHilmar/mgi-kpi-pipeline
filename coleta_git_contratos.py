@@ -6,13 +6,13 @@ Exporta como JSON estruturado para pipeline
 Consolidação de múltiplos repositórios na mesma saída
 """
 
-import os
-import subprocess
 import json
+import os
+import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
-import re
 
 try:
     from issue_keys import wsl_path_for_repo

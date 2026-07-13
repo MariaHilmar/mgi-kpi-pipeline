@@ -7,9 +7,9 @@ import config
 
 class TestParsePathRepoPairs:
     def test_um_par(self) -> None:
-        raw = r"\\wsl.localhost\Ubuntu\root\MGI\contratos_v2=contratos_v2"
+        raw = r"/data/contratos_v2=contratos_v2"
         assert config._parse_path_repo_pairs(raw) == [
-            ("<path-contratos_v2>", "contratos_v2"),
+            ("/data/contratos_v2", "contratos_v2"),
         ]
 
     def test_multiplos_pares(self) -> None:

@@ -17,8 +17,8 @@ import os
 from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Optional
 
-from gitlab_identities import enrich_records_with_developer_ids
 import issue_fields
+from gitlab_identities import enrich_records_with_developer_ids
 from issue_keys import get_gitlab_repo, repo_display_name
 
 try:
