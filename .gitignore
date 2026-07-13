@@ -12,6 +12,7 @@ venv/
 # Segredos e ambiente
 .env
 .env.*
+!.env.example
 
 # Artefatos gerados pela pipeline
 gitlab_issues_raw.json
@@ -20,8 +21,9 @@ gitlab_fiscalizacao_data.json
 gitlab_git_data.json
 *.log
 
-# Excel gerado (fica na raiz do workspace)
+# Excel gerado (fica na raiz do workspace ou em templates/)
 *.xlsx
+templates/*.xlsx
 
 # IDE / OS
 .DS_Store

@@ -95,6 +95,18 @@ def lookup_issue(issues_by_id: Dict[str, Dict], issue_key: str) -> Dict | None:
 
 
 def wsl_path_for_repo(repo: str) -> str:
+    try:
+        import config as _cfg
+
+        paths = getattr(_cfg, "WSL_REPO_PATHS", None)
+        if paths:
+            slug = normalize_repo(repo)
+            if slug in paths:
+                return paths[slug]
+            if DEFAULT_GITLAB_REPO in paths:
+                return paths[DEFAULT_GITLAB_REPO]
+    except ImportError:
+        pass
     return WSL_REPO_PATHS.get(repo, WSL_REPO_PATHS[DEFAULT_GITLAB_REPO])
 
 

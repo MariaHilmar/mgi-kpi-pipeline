@@ -19,9 +19,9 @@ Se ainda existir uma cópia no GitLab, pode ser arquivada ou ignorada; não é n
 
 ## CI e testes
 
-- **GitHub:** não há workflow obrigatório de mirror; SonarCloud pode continuar como análise opcional.
+- **GitHub Actions:** workflow `tests.yml` — `pytest` em Python 3.11 e 3.12 em push/PR para `main`.
 - **Testes locais:** `pytest` (ver [04-configuracao-execucao.md](04-configuracao-execucao.md)).
-- **`.gitlab-ci.yml`:** legado para quem eventualmente pushar o código em um fork GitLab; não faz parte do fluxo principal no GitHub.
+- **`.gitlab-ci.yml` na raiz:** removido; referência histórica em [legacy-gitlab-ci.yml](legacy-gitlab-ci.yml) para forks GitLab.
 
 ## Remotes locais
 

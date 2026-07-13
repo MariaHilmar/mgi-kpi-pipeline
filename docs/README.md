@@ -5,10 +5,8 @@ MGI (`contratos_v2` e `contratos`), processa tudo **em memória** e sincroniza
 direto com o **Supabase**, que por sua vez alimenta o dashboard web
 [`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard).
 
-> **O Excel não faz mais parte do fluxo.** Os módulos do antigo caminho via
-> planilha (`process_gitlab_issues_v2.py`, geradores de gráfico, `excel_com_save.py`,
-> etc.) permanecem no repositório apenas como legado e não são chamados pelo
-> fluxo principal.
+> **O Excel não faz mais parte do fluxo.** O processamento é feito em memória
+> (`processar_issues_memoria.py`) e sincronizado direto com o Supabase.
 
 ## Visão de alto nível
 

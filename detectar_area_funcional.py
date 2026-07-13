@@ -178,7 +178,6 @@ MODULE_TO_AREA: Dict[str, str] = {
     "Login": "Acesso",
     "Acesso": "Acesso",
     "acesso": "Acesso",
-    "Jobs": "Infraestrutura",
     "JOB": "Infraestrutura",
     "Pipeline": "Infraestrutura",
     "CI/CD": "Infraestrutura",

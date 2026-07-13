@@ -4,9 +4,9 @@ Lista membros ativos dos projetos GitLab comprasnet/contratos_v2 e comprasnet/co
 e cria contas correspondentes no Supabase Auth (dashboard MGI).
 
 Uso:
-  python provision_gitlab_users.py
   python provision_gitlab_users.py --dry-run
   python provision_gitlab_users.py --password "<senha-inicial>"
+  # ou defina MGI_PROVISION_PASSWORD no .env (nao commitar)
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ try:
 except ImportError:
     config = None
 
-# use --password ou MGI_PROVISION_PASSWORD
 GITLAB_GROUP = "comprasnet"
 BOT_USERNAME_MARKERS = ("_bot", "bot_")
 BOT_NAME_MARKERS = ("_TOKEN", "API_TOKEN", "Security Policy Bot", "Duo Developer")
@@ -429,10 +428,20 @@ def _create_supabase_user(
         raise RuntimeError(profile_response.text or f"HTTP {profile_response.status_code}")
 
 
+def _resolve_provision_password(cli_password: str | None) -> str | None:
+    """Senha obrigatoria para criar contas; aceita CLI ou MGI_PROVISION_PASSWORD."""
+    password = (cli_password or os.environ.get("MGI_PROVISION_PASSWORD", "")).strip()
+    return password or None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Provisiona usuarios GitLab no Supabase.")
     parser.add_argument("--dry-run", action="store_true", help="Apenas lista, nao cria contas.")
-    parser.add_argument("--password", default=None, help="Senha inicial dos novos usuarios.")
+    parser.add_argument(
+        "--password",
+        default=None,
+        help="Senha inicial dos novos usuarios (ou MGI_PROVISION_PASSWORD no .env).",
+    )
     args = parser.parse_args()
 
     _load_dotenv()
@@ -465,6 +474,14 @@ def main() -> int:
         print(f"\nDRY-RUN: {len(provisionable)} usuario(s) seriam provisionados.")
         return 0
 
+    password = _resolve_provision_password(args.password)
+    if not password:
+        print(
+            "ERRO: informe --password ou defina MGI_PROVISION_PASSWORD no .env "
+            "para provisionar contas."
+        )
+        return 1
+
     supabase_url, service_key = _supabase_config()
     existing = _list_existing_emails(supabase_url, service_key)
 
@@ -492,7 +509,7 @@ def main() -> int:
                 supabase_url,
                 service_key,
                 email=email,
-                password=args.password,
+                password=password,
                 full_name=user.get("name"),
                 autor_issues=user.get("name"),
                 gitlab_user_id=gitlab_id,

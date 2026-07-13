@@ -9,7 +9,38 @@ caminhos e credenciais espalhados/hardcoded pelo codigo.
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import Dict, List, Set, Tuple
+
+# ---------------------------------------------------------------------------
+# Helpers de parsing (env vars)
+# ---------------------------------------------------------------------------
+
+def _parse_path_repo_pairs(raw: str) -> List[Tuple[str, str]]:
+    """Parse MGI_REPOS: path=repo_slug;path2=repo_slug2"""
+    pairs: List[Tuple[str, str]] = []
+    for chunk in raw.split(";"):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        path, name = chunk.split("=", 1)
+        path, name = path.strip(), name.strip()
+        if path and name:
+            pairs.append((path, name))
+    return pairs
+
+
+def _parse_repo_path_map(raw: str) -> Dict[str, str]:
+    """Parse MGI_WSL_REPO_PATHS: repo_slug=/wsl/path;repo_slug2=/wsl/path2"""
+    mapping: Dict[str, str] = {}
+    for chunk in raw.split(";"):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        name, path = chunk.split("=", 1)
+        name, path = name.strip(), path.strip()
+        if name and path:
+            mapping[name] = path
+    return mapping
 
 # ---------------------------------------------------------------------------
 # Caminhos base
@@ -29,10 +60,19 @@ GIT_DATA_JSON: Path = Path(
 # ---------------------------------------------------------------------------
 # Coleta Git
 # ---------------------------------------------------------------------------
-REPOS: List[Tuple[str, str]] = [
-    ("<path-contratos_v2>", "contratos_v2"),
-    ("<path-contratos>", "contratos"),
-]
+# Caminhos locais dos clones Git (Windows UNC, WSL mount, etc.).
+# Formato: path=repo_slug;path2=repo_slug2  (variavel MGI_REPOS)
+REPOS: List[Tuple[str, str]] = _parse_path_repo_pairs(os.environ.get("MGI_REPOS", ""))
+
+# Caminhos dentro do WSL usados por git log/show nos detectores Git.
+# Formato: repo_slug=/wsl/path;repo_slug2=/wsl/path2  (variavel MGI_WSL_REPO_PATHS)
+_DEFAULT_WSL_REPO_PATHS: Dict[str, str] = {
+    "contratos_v2": "/root/MGI/contratos_v2",
+    "contratos": "/root/MGI/contratos",
+}
+WSL_REPO_PATHS: Dict[str, str] = _parse_repo_path_map(
+    os.environ.get("MGI_WSL_REPO_PATHS", "")
+) or dict(_DEFAULT_WSL_REPO_PATHS)
 SINCE_DAYS: int = int(os.environ.get("MGI_SINCE_DAYS", "30"))
 
 # ---------------------------------------------------------------------------

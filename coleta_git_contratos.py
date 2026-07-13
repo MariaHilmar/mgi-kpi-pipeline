@@ -11,7 +11,7 @@ import subprocess
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import re
 
 try:
@@ -241,10 +241,10 @@ class GitColeta:
         print("\n" + "="*70)
         print("📊 RESUMO")
         print("="*70)
-        print(f"\n📈 COMMITS:")
+        print("\n📈 COMMITS:")
         print(f"   Total: {self.data['stats'].get('commits_total', 0)}")
         if self.data['stats'].get('commits_por_autor'):
-            print(f"   Top 3 autores:")
+            print("   Top 3 autores:")
             for autor, count in sorted(
                 self.data['stats']['commits_por_autor'].items(),
                 key=lambda x: -x[1]
@@ -274,10 +274,7 @@ if __name__ == '__main__':
         OUTPUT_FILE = str(_cfg.GIT_DATA_JSON)
         DIAS = _cfg.SINCE_DAYS
     except Exception:
-        REPOS = [
-            ("<path-contratos_v2>", "contratos_v2"),
-            ("<path-contratos>", "contratos"),
-        ]
+        REPOS = []
         OUTPUT_FILE = r"D:\MGI-Relatórios\gitlab_git_data.json"
         DIAS = 30
 
@@ -313,7 +310,7 @@ if __name__ == '__main__':
             dados_consolidados['total_branches'] += len(coleta.data['branches'])
             dados_consolidados['total_releases'] += len(coleta.data['releases'])
 
-            print(f"   ✅ Sucesso")
+            print("   ✅ Sucesso")
         except Exception as e:
             print(f"   ❌ Erro: {e}")
 
@@ -322,8 +319,8 @@ if __name__ == '__main__':
     try:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             json.dump(dados_consolidados, f, indent=2, ensure_ascii=False)
-        print(f"✅ Dados consolidados exportados com sucesso!")
-        print(f"\n📊 RESUMO:")
+        print("✅ Dados consolidados exportados com sucesso!")
+        print("\n📊 RESUMO:")
         print(f"   Repositórios: {len(dados_consolidados['repositorios'])}")
         print(f"   Total commits: {dados_consolidados['total_commits']}")
         print(f"   Total branches: {dados_consolidados['total_branches']}")

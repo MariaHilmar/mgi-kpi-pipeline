@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # Importa os modulos locais
 sys.path.insert(0, str(Path(__file__).parent))
@@ -280,7 +280,6 @@ class PipelineMaestro:
 def main():
     """Funcao principal"""
     configure_logging()
-    logger = get_logger(__name__)
 
     all_modules = os.environ.get("MGI_ALL_MODULES", "1").lower() not in ("0", "false", "no")
     initial_load = os.environ.get("MGI_INITIAL_LOAD", "0").lower() not in ("0", "false", "no")
@@ -300,8 +299,9 @@ def main():
     data_input = None
 
     # Configuracao padrao (centralizada em config.py / variaveis de ambiente)
+    default_repo_path = mgi_config.REPOS[0][0] if mgi_config.REPOS else ""
     pipeline_config = {
-        'repo_path': mgi_config.REPOS[0][0],
+        'repo_path': default_repo_path,
         'output_dir': str(mgi_config.BASE_DIR),
         'issues_json_path': str(mgi_config.ISSUES_JSON),
     }

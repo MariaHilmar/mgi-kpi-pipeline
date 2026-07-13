@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import pytest
 
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 
