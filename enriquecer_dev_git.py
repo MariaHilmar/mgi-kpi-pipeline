@@ -20,7 +20,6 @@ import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 
 try:
     import config as _config
@@ -47,7 +46,7 @@ class DevGitInfo:
     tem_branch: str
     branch: str
     commits: int
-    ultimo_commit: Optional[datetime]
+    ultimo_commit: datetime | None
     autor_dev: str
     autor_email: str
     mr_gitlab: int
@@ -66,11 +65,11 @@ class GitDevEnricher:
         self.wsl_repo_path = wsl_repo_path
         self.base_branch = base_branch
         self.enabled = enabled
-        self._branch_index: Optional[Dict[str, List[str]]] = None
-        self._branch_stats_cache: Dict[str, Tuple[int, Optional[datetime], str, str]] = {}
-        self._merged_cache: Dict[str, bool] = {}
+        self._branch_index: dict[str, list[str]] | None = None
+        self._branch_stats_cache: dict[str, tuple[int, datetime | None, str, str]] = {}
+        self._merged_cache: dict[str, bool] = {}
 
-    def enrich(self, issue: Dict) -> DevGitInfo:
+    def enrich(self, issue: dict) -> DevGitInfo:
         issue_id = str(issue.get("id", "")).strip()
         mr_count = _parse_int(issue.get("merge_requests_count"))
 
@@ -112,13 +111,14 @@ class GitDevEnricher:
         )
 
     def _run_git(self, git_args: str, timeout: int = 45) -> str:
+        repo = shlex.quote(self.wsl_repo_path)
         cmd = [
             "wsl",
             "-d",
             "Ubuntu",
             "bash",
             "-lc",
-            f"cd {self.wsl_repo_path} && git {git_args}",
+            f"cd {repo} && git {git_args}",
         ]
         try:
             result = subprocess.run(
@@ -138,7 +138,7 @@ class GitDevEnricher:
             return
 
         output = self._run_git("branch -a --format='%(refname:short)'")
-        index: Dict[str, List[str]] = {}
+        index: dict[str, list[str]] = {}
         for line in output.splitlines():
             branch = _normalize_branch_name(line.strip())
             if not branch:
@@ -149,13 +149,13 @@ class GitDevEnricher:
                 index.setdefault(match.group(1), []).append(branch)
         self._branch_index = index
 
-    def _branches_for_issue(self, issue_id: str) -> List[str]:
+    def _branches_for_issue(self, issue_id: str) -> list[str]:
         self._ensure_branch_index()
         if not self._branch_index:
             return []
         return self._branch_index.get(issue_id, [])
 
-    def _branch_stats(self, branch: str) -> Tuple[int, Optional[datetime], str, str]:
+    def _branch_stats(self, branch: str) -> tuple[int, datetime | None, str, str]:
         if branch in self._branch_stats_cache:
             return self._branch_stats_cache[branch]
 
@@ -163,21 +163,21 @@ class GitDevEnricher:
         commit_count = 0
         for ref in refs:
             output = self._run_git(
-                f"rev-list --count {self.base_branch}..{ref} 2>/dev/null"
+                f"rev-list --count {shlex.quote(self.base_branch)}..{shlex.quote(ref)} 2>/dev/null"
             )
             if output.strip().isdigit():
                 commit_count = max(commit_count, int(output.strip()))
                 break
 
-        last_date: Optional[datetime] = None
+        last_date: datetime | None = None
         author = ""
         author_email = ""
         authors: Counter = Counter()
-        author_emails: Dict[str, str] = {}
+        author_emails: dict[str, str] = {}
 
         for ref in refs:
             log_output = self._run_git(
-                f"log {ref} -n 80 --format='%aI|%an|%ae' 2>/dev/null"
+                f"log {shlex.quote(ref)} -n 80 --format='%aI|%an|%ae' 2>/dev/null"
             )
             if not log_output.strip():
                 continue
@@ -206,7 +206,7 @@ class GitDevEnricher:
         self._branch_stats_cache[branch] = stats
         return stats
 
-    def _is_merged_to_master(self, issue_id: str, branches: List[str]) -> bool:
+    def _is_merged_to_master(self, issue_id: str, branches: list[str]) -> bool:
         cache_key = f"{issue_id}:{'|'.join(sorted(branches))}"
         if cache_key in self._merged_cache:
             return self._merged_cache[cache_key]
@@ -216,7 +216,8 @@ class GitDevEnricher:
         for branch in branches:
             short = branch.split("/")[-1]
             listed = self._run_git(
-                f"branch -a --merged {self.base_branch} --list '*{short}*' 2>/dev/null"
+                f"branch -a --merged {shlex.quote(self.base_branch)} "
+                f"--list {shlex.quote(f'*{short}*')} 2>/dev/null"
             )
             if listed.strip():
                 merged = True
@@ -224,26 +225,29 @@ class GitDevEnricher:
 
         if not merged:
             merge_log = self._run_git(
-                f"log {self.base_branch} --merges --grep='{issue_id}-' -1 --format=%H 2>/dev/null"
+                f"log {shlex.quote(self.base_branch)} --merges --grep={shlex.quote(f'{issue_id}-')} "
+                f"-1 --format=%H 2>/dev/null"
             )
             if merge_log.strip():
                 merged = True
 
         if not merged:
+            grep_pattern = f"Merge branch '{issue_id}-"
             merge_log = self._run_git(
-                f"log {self.base_branch} --grep=\"Merge branch '{issue_id}-\" -1 --format=%H 2>/dev/null"
+                f"log {shlex.quote(self.base_branch)} --grep={shlex.quote(grep_pattern)} "
+                f"-1 --format=%H 2>/dev/null"
             )
             merged = bool(merge_log.strip())
 
         self._merged_cache[cache_key] = merged
         return merged
 
-    def _author_from_commit_grep(self, issue_id: str) -> Tuple[str, str]:
+    def _author_from_commit_grep(self, issue_id: str) -> tuple[str, str]:
         if os.environ.get("MGI_DEV_SKIP_GIT_GREP", "1").lower() not in ("0", "false", "no"):
             return "", ""
 
         authors: Counter = Counter()
-        author_emails: Dict[str, str] = {}
+        author_emails: dict[str, str] = {}
         patterns = [f"#{issue_id}", f"{issue_id}-", f"Closes #{issue_id}"]
         for pattern in patterns[:2]:
             quoted = shlex.quote(pattern)
@@ -273,7 +277,7 @@ def _normalize_branch_name(raw: str) -> str:
     return branch.lstrip("* ").strip()
 
 
-def _branch_refs(branch: str) -> List[str]:
+def _branch_refs(branch: str) -> list[str]:
     short = branch.split("/")[-1]
     refs = []
     if branch.startswith("origin/"):
@@ -283,7 +287,7 @@ def _branch_refs(branch: str) -> List[str]:
     return refs
 
 
-def _pick_primary_branch(branches: List[str]) -> str:
+def _pick_primary_branch(branches: list[str]) -> str:
     normalized = [_normalize_branch_name(b) for b in branches]
     normalized.sort(key=lambda name: (len(name), name))
     for name in normalized:
@@ -292,7 +296,7 @@ def _pick_primary_branch(branches: List[str]) -> str:
     return normalized[0].split("/")[-1]
 
 
-def _parse_git_date(value: str) -> Optional[datetime]:
+def _parse_git_date(value: str) -> datetime | None:
     if not value:
         return None
     try:
@@ -322,7 +326,7 @@ class MultiRepoDevEnricher:
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
-        self._enrichers: Dict[str, GitDevEnricher] = {}
+        self._enrichers: dict[str, GitDevEnricher] = {}
 
     def _get_enricher(self, repo: str) -> GitDevEnricher:
         if repo not in self._enrichers:
@@ -332,10 +336,10 @@ class MultiRepoDevEnricher:
             )
         return self._enrichers[repo]
 
-    def enrich(self, issue: Dict) -> DevGitInfo:
+    def enrich(self, issue: dict) -> DevGitInfo:
         repo = get_gitlab_repo(issue)
         alt_repo = "contratos" if repo == "contratos_v2" else "contratos_v2"
-        best: Optional[DevGitInfo] = None
+        best: DevGitInfo | None = None
         for try_repo in (repo, alt_repo):
             info = self._get_enricher(try_repo).enrich(issue)
             if _dev_info_score(info) > _dev_info_score(best):
@@ -343,7 +347,7 @@ class MultiRepoDevEnricher:
         return best or DevGitInfo("Não", "", 0, None, "", "", 0, "Não")
 
 
-def _dev_info_score(info: Optional[DevGitInfo]) -> int:
+def _dev_info_score(info: DevGitInfo | None) -> int:
     if not info:
         return -1
     score = 0
@@ -357,7 +361,7 @@ def _dev_info_score(info: Optional[DevGitInfo]) -> int:
     return score
 
 
-def resolve_desenvolvedor(issue: Dict, info: Optional[DevGitInfo] = None) -> str:
+def resolve_desenvolvedor(issue: dict, info: DevGitInfo | None = None) -> str:
     """Desenvolvedor principal: Git (mais commits) > assignee GitLab."""
     if info is None:
         info = build_dev_enricher().enrich(issue)

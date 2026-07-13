@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     import config as _config
@@ -34,7 +34,7 @@ DEFAULT_WSL_REPO = "/root/MGI/contratos_v2"
 
 VALID_TIPOS = frozenset({"Bug", "Melhoria", "Performance"})
 
-COMMIT_TIPO_RULES: Sequence[Tuple[str, str]] = (
+COMMIT_TIPO_RULES: Sequence[tuple[str, str]] = (
     (r"^\s*fix\b", "Bug"),
     (r"^\s*bugfix\b", "Bug"),
     (r"^\s*hotfix\b", "Bug"),
@@ -43,13 +43,13 @@ COMMIT_TIPO_RULES: Sequence[Tuple[str, str]] = (
     (r"^\s*feature\b", "Melhoria"),
 )
 
-BRANCH_TIPO_RULES: Sequence[Tuple[str, str]] = (
+BRANCH_TIPO_RULES: Sequence[tuple[str, str]] = (
     (r"bug|fix|hotfix|correc", "Bug"),
     (r"feat|feature|melhoria", "Melhoria"),
     (r"perf|performance", "Performance"),
 )
 
-TITLE_TIPO_RULES: Sequence[Tuple[str, str]] = (
+TITLE_TIPO_RULES: Sequence[tuple[str, str]] = (
     (r"\bincidente\b|\bbug\b|\bcorr(?:e|i)(?:ç|c)?(?:ã|a)o\b|\berro\b|\bfalha\b", "Bug"),
     (r"\bperformance\b|\botimiz", "Performance"),
     (r"\bmelhoria\b|\bpermitir\b|\bincluir\b|\bimplement", "Melhoria"),
@@ -73,15 +73,15 @@ class TipoIssueDetector:
     ):
         self.wsl_repo_path = wsl_repo_path
         self.enabled = enabled
-        self._branch_index: Optional[Dict[str, List[str]]] = None
-        self._commits_cache: Dict[str, List[str]] = {}
+        self._branch_index: dict[str, list[str]] | None = None
+        self._commits_cache: dict[str, list[str]] = {}
 
-    def detect(self, issue: Dict) -> TipoDetection:
+    def detect(self, issue: dict) -> TipoDetection:
         issue_id = str(issue.get("id", "")).strip()
         if not issue_id:
             return TipoDetection("", "none", 0.0)
 
-        branches: List[str] = []
+        branches: list[str] = []
         if self.enabled:
             branches = self._branches_for_issue(issue_id)
             if branches:
@@ -131,7 +131,7 @@ class TipoIssueDetector:
             return
 
         output = self._run_git("branch -a --format='%(refname:short)'")
-        index: Dict[str, List[str]] = {}
+        index: dict[str, list[str]] = {}
         for line in output.splitlines():
             branch = line.strip().lstrip("origin/").lstrip("remotes/")
             short = branch.split("/")[-1]
@@ -140,15 +140,15 @@ class TipoIssueDetector:
                 index.setdefault(match.group(1), []).append(branch)
         self._branch_index = index
 
-    def _branches_for_issue(self, issue_id: str) -> List[str]:
+    def _branches_for_issue(self, issue_id: str) -> list[str]:
         self._ensure_branch_index()
         return self._branch_index.get(issue_id, []) if self._branch_index else []
 
-    def _commits_for_issue(self, issue_id: str, branches: List[str]) -> List[str]:
+    def _commits_for_issue(self, issue_id: str, branches: list[str]) -> list[str]:
         if issue_id in self._commits_cache:
             return self._commits_cache[issue_id]
 
-        messages: List[str] = []
+        messages: list[str] = []
 
         for branch in branches:
             branch_ref = branch if branch.startswith("origin/") else f"origin/{branch}"
@@ -169,7 +169,7 @@ class TipoIssueDetector:
         return unique
 
 
-def _infer_tipo_from_commits(messages: Sequence[str]) -> Optional[str]:
+def _infer_tipo_from_commits(messages: Sequence[str]) -> str | None:
     if not messages:
         return None
     scores: Counter = Counter()
@@ -185,7 +185,7 @@ def _infer_tipo_from_commits(messages: Sequence[str]) -> Optional[str]:
     return tipo if tipo in VALID_TIPOS else None
 
 
-def _infer_tipo_from_text(text: str, rules: Sequence[Tuple[str, str]]) -> Optional[str]:
+def _infer_tipo_from_text(text: str, rules: Sequence[tuple[str, str]]) -> str | None:
     if not text:
         return None
     normalized = text.lower()
@@ -205,7 +205,7 @@ class MultiRepoTipoDetector:
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
-        self._detectors: Dict[str, TipoIssueDetector] = {}
+        self._detectors: dict[str, TipoIssueDetector] = {}
 
     def _get_detector(self, repo: str) -> TipoIssueDetector:
         if repo not in self._detectors:
@@ -215,6 +215,6 @@ class MultiRepoTipoDetector:
             )
         return self._detectors[repo]
 
-    def detect(self, issue: Dict) -> TipoDetection:
+    def detect(self, issue: dict) -> TipoDetection:
         repo = get_gitlab_repo(issue)
         return self._get_detector(repo).detect(issue)

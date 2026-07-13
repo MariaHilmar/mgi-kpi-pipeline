@@ -20,11 +20,12 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
+from logging_utils import get_logger
 from provision_gitlab_users import (
     _supabase_config,
     _upsert_gitlab_user,
@@ -32,8 +33,10 @@ from provision_gitlab_users import (
 )
 from sync_supabase import _load_dotenv
 
+log = get_logger(__name__)
 
-def _headers(service_key: str) -> Dict[str, str]:
+
+def _headers(service_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {service_key}",
         "apikey": service_key,
@@ -44,7 +47,7 @@ def _headers(service_key: str) -> Dict[str, str]:
 
 def _fetch_profiles_without_gitlab_id(
     supabase_url: str, service_key: str
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     response = requests.get(
         f"{supabase_url}/rest/v1/profiles",
         headers=_headers(service_key),
@@ -59,7 +62,7 @@ def _fetch_profiles_without_gitlab_id(
     return response.json()
 
 
-def _fetch_gitlab_users_table(supabase_url: str, service_key: str) -> List[Dict[str, Any]]:
+def _fetch_gitlab_users_table(supabase_url: str, service_key: str) -> list[dict[str, Any]]:
     response = requests.get(
         f"{supabase_url}/rest/v1/gitlab_users",
         headers=_headers(service_key),
@@ -72,7 +75,7 @@ def _fetch_gitlab_users_table(supabase_url: str, service_key: str) -> List[Dict[
 
 def _fetch_profiles_with_gitlab_id(
     supabase_url: str, service_key: str
-) -> Dict[int, str]:
+) -> dict[int, str]:
     response = requests.get(
         f"{supabase_url}/rest/v1/profiles",
         headers=_headers(service_key),
@@ -80,7 +83,7 @@ def _fetch_profiles_with_gitlab_id(
         timeout=60,
     )
     response.raise_for_status()
-    mapping: Dict[int, str] = {}
+    mapping: dict[int, str] = {}
     for row in response.json():
         gid = row.get("gitlab_user_id")
         if gid is not None:
@@ -89,12 +92,12 @@ def _fetch_profiles_with_gitlab_id(
 
 
 def _build_email_to_gitlab_id(
-    gitlab_users_rows: List[Dict[str, Any]],
-    gitlab_api_users: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, int]:
-    email_map: Dict[str, int] = {}
+    gitlab_users_rows: list[dict[str, Any]],
+    gitlab_api_users: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    email_map: dict[str, int] = {}
 
-    def register(email: Optional[str], gitlab_id: int, username: Optional[str] = None) -> None:
+    def register(email: str | None, gitlab_id: int, username: str | None = None) -> None:
         if not email:
             return
         key = email.strip().lower()
@@ -137,40 +140,40 @@ def run_backfill(*, dry_run: bool, from_gitlab_only: bool) -> int:
 
     profiles = _fetch_profiles_without_gitlab_id(supabase_url, service_key)
     if not profiles:
-        print("OK - Todos os perfis ja possuem gitlab_user_id.")
+        log.info("OK - Todos os perfis ja possuem gitlab_user_id.")
         return 0
 
-    gitlab_users_rows: List[Dict[str, Any]] = []
+    gitlab_users_rows: list[dict[str, Any]] = []
     if not from_gitlab_only:
         gitlab_users_rows = _fetch_gitlab_users_table(supabase_url, service_key)
-        print(f"OK - {len(gitlab_users_rows)} registro(s) em gitlab_users")
+        log.info(f"OK - {len(gitlab_users_rows)} registro(s) em gitlab_users")
 
-    gitlab_api_users: List[Dict[str, Any]] = []
-    api_warnings: List[str] = []
+    gitlab_api_users: list[dict[str, Any]] = []
+    api_warnings: list[str] = []
     for attempt in range(3):
         try:
             gitlab_api_users, api_warnings = collect_active_gitlab_users()
             break
         except requests.RequestException as exc:
             if attempt < 2:
-                print(f"AVISO - Falha na API GitLab ({exc}); tentando novamente...")
+                log.warning(f"AVISO - Falha na API GitLab ({exc}); tentando novamente...")
                 time.sleep(3 * (attempt + 1))
                 continue
             raise
-    print(f"OK - {len(gitlab_api_users)} usuario(s) ativos na API GitLab")
+    log.info(f"OK - {len(gitlab_api_users)} usuario(s) ativos na API GitLab")
     for warning in api_warnings:
-        print(f"AVISO - {warning}")
+        log.warning(f"AVISO - {warning}")
 
     email_map = _build_email_to_gitlab_id(gitlab_users_rows, gitlab_api_users)
     assigned = _fetch_profiles_with_gitlab_id(supabase_url, service_key)
 
     linked = 0
     skipped = 0
-    unmatched: List[str] = []
+    unmatched: list[str] = []
 
-    print(f"\nPerfis sem gitlab_user_id: {len(profiles)}\n")
-    print(f"{'E-mail':<42} {'Nome':<28} {'GitLab ID':<10} Acao")
-    print("-" * 95)
+    log.info(f"\nPerfis sem gitlab_user_id: {len(profiles)}\n")
+    log.info(f"{'E-mail':<42} {'Nome':<28} {'GitLab ID':<10} Acao")
+    log.info("-" * 95)
 
     for profile in profiles:
         email = (profile.get("email") or "").strip().lower()
@@ -179,18 +182,18 @@ def run_backfill(*, dry_run: bool, from_gitlab_only: bool) -> int:
 
         if not gitlab_id:
             unmatched.append(email or profile["id"])
-            print(f"{email or '(sem e-mail)':<42} {name:<28} {'—':<10} sem match")
+            log.info(f"{email or '(sem e-mail)':<42} {name:<28} {'—':<10} sem match")
             skipped += 1
             continue
 
         owner = assigned.get(gitlab_id)
         if owner and owner != email:
-            print(f"{email:<42} {name:<28} {gitlab_id:<10} PULADO (ID ja usado por {owner})")
+            log.info(f"{email:<42} {name:<28} {gitlab_id:<10} PULADO (ID ja usado por {owner})")
             skipped += 1
             continue
 
         if dry_run:
-            print(f"{email:<42} {name:<28} {gitlab_id:<10} vincularia")
+            log.info(f"{email:<42} {name:<28} {gitlab_id:<10} vincularia")
             linked += 1
             continue
 
@@ -216,17 +219,19 @@ def run_backfill(*, dry_run: bool, from_gitlab_only: bool) -> int:
             gitlab_user_id=gitlab_id,
         )
         assigned[gitlab_id] = email
-        print(f"{email:<42} {name:<28} {gitlab_id:<10} VINCULADO")
+        log.info(f"{email:<42} {name:<28} {gitlab_id:<10} VINCULADO")
         linked += 1
 
-    print(f"\nResumo: {linked} vinculado(s), {skipped} ignorado(s)/sem match.")
+    log.info(
+        f"\nResumo: {linked} vinculado(s), {skipped} ignorado(s)/sem match."
+    )
     if unmatched:
-        print("\nSem correspondencia por e-mail (vincule manualmente em Admin > Usuarios > ID GitLab):")
+        log.info("\nSem correspondencia por e-mail (vincule manualmente em Admin > Usuarios > ID GitLab):")
         for email in unmatched:
-            print(f"  - {email}")
+            log.info(f"  - {email}")
 
     if dry_run:
-        print("\nDRY-RUN: nenhuma alteracao foi gravada. Rode sem --dry-run para aplicar.")
+        log.info("\nDRY-RUN: nenhuma alteracao foi gravada. Rode sem --dry-run para aplicar.")
 
     return 0
 

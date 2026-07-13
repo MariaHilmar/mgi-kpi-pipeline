@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List
 
 try:
     import config
@@ -20,8 +20,8 @@ def _retention_days() -> int:
     return int(os.environ.get("MGI_LOG_RETENTION_DAYS", "5"))
 
 
-def _log_directories(base_dir: Path) -> List[Path]:
-    dirs: List[Path] = []
+def _log_directories(base_dir: Path) -> list[Path]:
+    dirs: list[Path] = []
     for name in ("logs", "Logs"):
         path = base_dir / name
         if path.is_dir():

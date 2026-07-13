@@ -5,10 +5,8 @@ MGI (`contratos_v2` e `contratos`), processa tudo **em memória** e sincroniza
 direto com o **Supabase**, que por sua vez alimenta o dashboard web
 [`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard).
 
-> **O Excel não faz mais parte do fluxo.** Os módulos do antigo caminho via
-> planilha (`process_gitlab_issues_v2.py`, geradores de gráfico, `excel_com_save.py`,
-> etc.) permanecem no repositório apenas como legado e não são chamados pelo
-> fluxo principal.
+> **O Excel não faz mais parte do fluxo.** O processamento é feito em memória
+> (`processar_issues_memoria.py`) e sincronizado direto com o Supabase.
 
 ## Visão de alto nível
 
@@ -38,6 +36,7 @@ no Supabase. Toda a escrita no banco é feita por este pipeline, usando a
 | [03-integracao-dashboard.md](03-integracao-dashboard.md) | Contrato de dados Supabase ↔ dashboard, campos derivados e KPIs. |
 | [04-configuracao-execucao.md](04-configuracao-execucao.md) | Variáveis de ambiente, execução, testes e CI. |
 | [05-agendamento.md](05-agendamento.md) | Task Scheduler — execução automática diária. |
+| [08-repositorio-github.md](08-repositorio-github.md) | Repositório canônico no GitHub (não espelhar para GitLab). |
 | [../mgi-kpi-dashboard/docs/10-identidades-gitlab.md](../mgi-kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
 
 ## Atalhos

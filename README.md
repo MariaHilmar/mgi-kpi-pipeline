@@ -1,5 +1,9 @@
 # MGI KPI Pipeline
 
+[![Tests](https://github.com/MariaHilmar/mgi-kpi-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/MariaHilmar/mgi-kpi-pipeline/actions/workflows/tests.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Pipeline que coleta dados de issues e commits dos repositórios GitLab do MGI,
 processa tudo **em memória** (taxonomia, área funcional, tipo, enriquecimento
 Dev/Git, qualidade) e sincroniza direto com o Supabase, que alimenta o dashboard
@@ -31,8 +35,12 @@ de Excel/openpyxl.
 
 ## Estrutura
 
-O código é "flat" (arquivos na raiz) por compatibilidade com os scripts de
-orquestração/agendador que chamam os módulos pelo nome. Principais módulos:
+O código fica na **raiz do repositório** (layout "flat"), de propósito: os scripts
+de orquestração e o Task Scheduler do Windows invocam os módulos pelo nome de
+arquivo (`python pipeline_maestro.py`, etc.). Uma pasta `src/` seria mais comum
+em bibliotecas publicadas no PyPI; aqui a prioridade é operação local e CI simples.
+
+Principais módulos:
 
 | Módulo | Responsabilidade |
 |--------|------------------|
@@ -51,10 +59,6 @@ orquestração/agendador que chamam os módulos pelo nome. Principais módulos:
 | `backfill_profile_gitlab_ids.py` | Vincula `profiles.gitlab_user_id` por e-mail (contas já existentes). |
 | `provision_gitlab_users.py` | Cria contas Supabase a partir de membros GitLab (com `gitlab_user_id`). |
 
-> Os módulos do antigo fluxo Excel (`process_gitlab_issues_v2.py`,
-> `gerar_graficos_dashboard.py`, `excel_com_save.py`, etc.) permanecem no
-> repositório como legado, mas **não são mais chamados pelo fluxo principal**.
-
 Testes em `tests/` (`pytest`).
 
 ## Requisitos
@@ -72,11 +76,13 @@ pip install -r requirements-dev.txt
 ## Variáveis de ambiente
 
 Todas opcionais (têm default em `config.py`). Para o sync, use um `.env` na
-raiz do workspace (`mgi-workspace/.env`).
+raiz do workspace (`mgi-workspace/.env`). Veja `.env.example` neste repositório.
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
 | `MGI_BASE_DIR` | pasta do workspace | Base para logs/JSON. |
+| `MGI_REPOS` | *(vazio)* | Caminhos locais dos clones Git: `path=repo_slug;path2=slug2`. Ver `.env.example`. |
+| `MGI_WSL_REPO_PATHS` | slugs padrão MGI | Caminhos WSL para `git log`: `slug=/wsl/path;slug2=/path2`. |
 | `MGI_ISSUES_JSON` | `mgi-kpi-pipeline/gitlab_issues_raw.json` | Fonte das issues processadas. |
 | `MGI_ALL_MODULES` | `1` | `1` = todos os módulos; `0` = só `Fiscalização`/`Fornecedor`. |
 | `MGI_CLOSED_EXCLUDE_DAYS` | `60` | Exclui issues fechadas há mais de N dias. |
@@ -118,16 +124,32 @@ python backfill_profile_gitlab_ids.py --dry-run
 python backfill_profile_gitlab_ids.py
 ```
 
-## Testes
+## Agendamento (opcional — Windows)
+
+Para execução diária automática no **Windows Task Scheduler**, use
+`agendar_task_scheduler.ps1` / `desagendar_task_scheduler.ps1`.
+Não é necessário para desenvolvimento nem para o repositório público — apenas
+para quem roda o pipeline em máquina Windows de produção. Detalhes em
+[docs/05-agendamento.md](docs/05-agendamento.md).
+
+## Testes e qualidade
 
 ```bash
-pytest
+pytest          # testes + cobertura mínima (38%)
+ruff check .    # lint
 ```
 
 A suíte cobre a derivação de campos (`issue_fields`), a construção de records
 (`processar_issues_memoria`), os filtros e o cliente de sync (`sync_supabase`,
 com `requests` mockado), além das funções puras de taxonomia, datas e chaves.
-O CI (`.gitlab-ci.yml`) roda `pytest` a cada push/MR.
+
+## Repositório e CI
+
+**Repositório canônico:** [GitHub — MariaHilmar/mgi-kpi-pipeline](https://github.com/MariaHilmar/mgi-kpi-pipeline).  
+Detalhes em [docs/08-repositorio-github.md](docs/08-repositorio-github.md).
+
+CI no GitHub Actions: `ruff check` + `pytest` (Python 3.11/3.12). Referência
+de CI GitLab legado: [docs/legacy-gitlab-ci.yml](docs/legacy-gitlab-ci.yml).
 
 ## Banco de dados (Supabase)
 

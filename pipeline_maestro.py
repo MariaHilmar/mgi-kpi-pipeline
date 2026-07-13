@@ -13,21 +13,20 @@ Fluxo:
 import json
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from pathlib import Path
 
 # Importa os modulos locais
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
     import config as mgi_config
-    from coleta_git_contratos import GitColeta
-    from sync_supabase import sync_issues_to_supabase
-    from processar_issues_memoria import resolve_enable_git
     from atualizar_gitlab_issues import validar_json_local
+    from coleta_git_contratos import GitColeta
     from log_maintenance import limpar_logs_antigos
     from logging_utils import configure_logging, get_logger
+    from processar_issues_memoria import resolve_enable_git
+    from sync_supabase import sync_issues_to_supabase
 except ImportError as e:
     print(f"ERRO importando modulos: {e}")
     sys.exit(1)
@@ -43,15 +42,11 @@ class PipelineMaestro:
         self.all_modules = all_modules
         self.initial_load = initial_load
         self.full_refresh = full_refresh
-        if initial_load:
-            os.environ["MGI_INITIAL_LOAD"] = "1"
-            mgi_config.INITIAL_LOAD = True
-        if all_modules:
-            os.environ["MGI_ALL_MODULES"] = "1"
-            mgi_config.ALL_MODULES = True
-        if full_refresh:
-            os.environ["MGI_REFRESH_MODE"] = "full"
-            mgi_config.REFRESH_MODE = "full"
+        mgi_config.apply_pipeline_runtime_flags(
+            all_modules=all_modules,
+            initial_load=initial_load,
+            full_refresh=full_refresh,
+        )
 
         # Logging central (console em stdout + arquivo rotacionado)
         configure_logging()
@@ -122,12 +117,12 @@ class PipelineMaestro:
             self.logger.error(f"ERRO na coleta Git: {e}")
             return None
 
-    def carregar_issues_json(self) -> List[Dict]:
+    def carregar_issues_json(self) -> list[dict]:
         """Carrega issues do JSON exportado"""
         self.logger.info("\n[ISSUES] ETAPA 2: Carregamento de Issues")
         self.logger.info("=" * 70)
         try:
-            with open(self.issues_json, 'r', encoding='utf-8') as f:
+            with open(self.issues_json, encoding='utf-8') as f:
                 issues_data = json.load(f)
 
             if isinstance(issues_data, list):
@@ -144,7 +139,7 @@ class PipelineMaestro:
             self.logger.error(f"ERRO carregando issues: {e}")
             return []
 
-    def sincronizar_supabase(self, issues: List[Dict]) -> bool:
+    def sincronizar_supabase(self, issues: list[dict]) -> bool:
         """Processa issues em memoria e sincroniza direto no Supabase (sem Excel)."""
         self.logger.info("\n[SUPABASE] ETAPA 3: Processamento e sync de Issues")
         self.logger.info("=" * 70)
@@ -235,7 +230,7 @@ class PipelineMaestro:
         if git_data_file:
             # Carregar dados Git para estatisticas (totais consolidados na raiz)
             try:
-                with open(git_data_file, 'r', encoding='utf-8') as f:
+                with open(git_data_file, encoding='utf-8') as f:
                     git_data = json.load(f)
                 git_stats = {
                     'commits_total': git_data.get('total_commits', 0),
@@ -280,7 +275,6 @@ class PipelineMaestro:
 def main():
     """Funcao principal"""
     configure_logging()
-    logger = get_logger(__name__)
 
     all_modules = os.environ.get("MGI_ALL_MODULES", "1").lower() not in ("0", "false", "no")
     initial_load = os.environ.get("MGI_INITIAL_LOAD", "0").lower() not in ("0", "false", "no")
@@ -290,18 +284,16 @@ def main():
         all_modules = True
     if "--initial-load" in sys.argv[1:]:
         initial_load = True
-        os.environ["MGI_INITIAL_LOAD"] = "1"
     if "--full" in sys.argv[1:]:
         full_refresh = True
-        os.environ["MGI_REFRESH_MODE"] = "full"
-        mgi_config.REFRESH_MODE = "full"
 
     # Data via stdin era usada pelo fluxo Excel legado; ignorada no sync Supabase.
     data_input = None
 
     # Configuracao padrao (centralizada em config.py / variaveis de ambiente)
+    default_repo_path = mgi_config.REPOS[0][0] if mgi_config.REPOS else ""
     pipeline_config = {
-        'repo_path': mgi_config.REPOS[0][0],
+        'repo_path': default_repo_path,
         'output_dir': str(mgi_config.BASE_DIR),
         'issues_json_path': str(mgi_config.ISSUES_JSON),
     }

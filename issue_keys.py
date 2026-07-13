@@ -3,24 +3,22 @@
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
-
 DEFAULT_GITLAB_REPO = "contratos_v2"
 
 GITLAB_BASE_URL = "https://gitlab.com"
 
-GITLAB_PROJECT_PATHS: Dict[str, str] = {
+GITLAB_PROJECT_PATHS: dict[str, str] = {
     "contratos_v2": "comprasnet/contratos_v2",
     "contratos": "comprasnet/contratos",
 }
 
-REPO_DISPLAY_NAMES: Dict[str, str] = {
+REPO_DISPLAY_NAMES: dict[str, str] = {
     "contratos_v2": "Contratos v2",
     "contratos": "Contratos v1",
 }
 
 # Aliases gravados na planilha -> slug canonico
-REPO_ALIASES: Dict[str, str] = {
+REPO_ALIASES: dict[str, str] = {
     "contratos v2": "contratos_v2",
     "contratos v1": "contratos",
     "contrato v1": "contratos",
@@ -54,18 +52,18 @@ def gitlab_work_item_url(repo: str, iid: str) -> str:
     iid = str(iid).strip()
     return f"{GITLAB_BASE_URL}/{project}/-/work_items/{iid}"
 
-WSL_REPO_PATHS: Dict[str, str] = {
+WSL_REPO_PATHS: dict[str, str] = {
     "contratos_v2": "/root/MGI/contratos_v2",
     "contratos": "/root/MGI/contratos",
 }
 
 
-def get_gitlab_repo(issue: Dict) -> str:
+def get_gitlab_repo(issue: dict) -> str:
     repo = (issue.get("gitlab_repo") or issue.get("repositorio") or "").strip()
     return repo or DEFAULT_GITLAB_REPO
 
 
-def make_issue_key(issue: Dict) -> str:
+def make_issue_key(issue: dict) -> str:
     iid = str(issue.get("id", "")).strip()
     return f"{get_gitlab_repo(issue)}:{iid}"
 
@@ -75,14 +73,14 @@ def make_key_from_parts(repo: str, iid: str) -> str:
     return f"{repo}:{iid}"
 
 
-def parse_issue_key(key: str) -> Tuple[str, str]:
+def parse_issue_key(key: str) -> tuple[str, str]:
     if ":" in key:
         repo, iid = key.split(":", 1)
         return repo.strip() or DEFAULT_GITLAB_REPO, iid.strip()
     return DEFAULT_GITLAB_REPO, key.strip()
 
 
-def lookup_issue(issues_by_id: Dict[str, Dict], issue_key: str) -> Dict | None:
+def lookup_issue(issues_by_id: dict[str, dict], issue_key: str) -> dict | None:
     """Busca issue pela chave composta; tenta o outro repo se o IID so existir la."""
     issue = issues_by_id.get(issue_key)
     if issue:
@@ -95,10 +93,22 @@ def lookup_issue(issues_by_id: Dict[str, Dict], issue_key: str) -> Dict | None:
 
 
 def wsl_path_for_repo(repo: str) -> str:
+    try:
+        import config as _cfg
+
+        paths = getattr(_cfg, "WSL_REPO_PATHS", None)
+        if paths:
+            slug = normalize_repo(repo)
+            if slug in paths:
+                return paths[slug]
+            if DEFAULT_GITLAB_REPO in paths:
+                return paths[DEFAULT_GITLAB_REPO]
+    except ImportError:
+        pass
     return WSL_REPO_PATHS.get(repo, WSL_REPO_PATHS[DEFAULT_GITLAB_REPO])
 
 
-def summarize_issues_by_repo(issues) -> Tuple[Dict[str, int], int]:
+def summarize_issues_by_repo(issues) -> tuple[dict[str, int], int]:
     """Conta issues por gitlab_repo e quantas nao tem o campo."""
     from collections import Counter
 

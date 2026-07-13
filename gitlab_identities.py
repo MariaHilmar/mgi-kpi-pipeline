@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 
-def _parse_int(value: Any) -> Optional[int]:
+def _parse_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
     try:
@@ -16,7 +17,7 @@ def _parse_int(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
-def _normalize_email(value: Optional[str]) -> Optional[str]:
+def _normalize_email(value: str | None) -> str | None:
     if not value:
         return None
     email = value.strip().lower()
@@ -28,11 +29,11 @@ def _normalize_email(value: Optional[str]) -> Optional[str]:
 def gitlab_user_row(
     *,
     user_id: int,
-    username: Optional[str] = None,
-    name: Optional[str] = None,
-    email: Optional[str] = None,
+    username: str | None = None,
+    name: str | None = None,
+    email: str | None = None,
     synced_at: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "id": user_id,
         "username": (username or f"user-{user_id}").strip(),
@@ -42,9 +43,9 @@ def gitlab_user_row(
     }
 
 
-def collect_gitlab_users_from_records(records: Iterable[Dict[str, Any]], synced_at: str) -> List[Dict[str, Any]]:
+def collect_gitlab_users_from_records(records: Iterable[dict[str, Any]], synced_at: str) -> list[dict[str, Any]]:
     """Agrega usuarios unicos a partir de metadados embutidos nos registros."""
-    users: Dict[int, Dict[str, Any]] = {}
+    users: dict[int, dict[str, Any]] = {}
 
     def merge(user_id: int, **fields: Any) -> None:
         current = users.setdefault(
@@ -74,8 +75,8 @@ def collect_gitlab_users_from_records(records: Iterable[Dict[str, Any]], synced_
     return list(users.values())
 
 
-def build_participant_rows(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+def build_participant_rows(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for record in records:
         issue_key = record.get("issue_key")
         if not issue_key:
@@ -98,23 +99,23 @@ def build_participant_rows(records: Iterable[Dict[str, Any]]) -> List[Dict[str, 
     return rows
 
 
-def strip_internal_fields(record: Dict[str, Any]) -> Dict[str, Any]:
+def strip_internal_fields(record: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in record.items() if not key.startswith("_")}
 
 
-def prepare_issue_rows_for_upsert(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def prepare_issue_rows_for_upsert(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [strip_internal_fields(record) for record in records]
 
 
 def resolve_developer_gitlab_id(
     *,
-    dev_author_email: Optional[str],
-    dev_author_name: Optional[str],
-    assignee_ids: List[int],
-    users_by_id: Dict[int, Dict[str, Any]],
-    users_by_email: Dict[str, int],
-    users_by_name: Dict[str, int],
-) -> Tuple[Optional[int], str]:
+    dev_author_email: str | None,
+    dev_author_name: str | None,
+    assignee_ids: list[int],
+    users_by_id: dict[int, dict[str, Any]],
+    users_by_email: dict[str, int],
+    users_by_name: dict[str, int],
+) -> tuple[int | None, str]:
     """Resolve desenvolvedor principal para gitlab_user_id. Retorna (id, source)."""
     email = _normalize_email(dev_author_email)
     if email and email in users_by_email:
@@ -132,11 +133,11 @@ def resolve_developer_gitlab_id(
     return None, ""
 
 
-def enrich_records_with_developer_ids(records: List[Dict[str, Any]]) -> None:
+def enrich_records_with_developer_ids(records: list[dict[str, Any]]) -> None:
     """Preenche gitlab_developer_id e participante developer in-place."""
-    users_by_id: Dict[int, Dict[str, Any]] = {}
-    users_by_email: Dict[str, int] = {}
-    users_by_name: Dict[str, int] = {}
+    users_by_id: dict[int, dict[str, Any]] = {}
+    users_by_email: dict[str, int] = {}
+    users_by_name: dict[str, int] = {}
 
     for record in records:
         for meta in record.get("_gitlab_user_meta") or []:
@@ -179,9 +180,9 @@ def enrich_records_with_developer_ids(records: List[Dict[str, Any]]) -> None:
         record["_participants"] = participants
 
 
-def issue_keys_from_records(records: Iterable[Dict[str, Any]]) -> List[str]:
-    keys: List[str] = []
-    seen: Set[str] = set()
+def issue_keys_from_records(records: Iterable[dict[str, Any]]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
     for record in records:
         key = record.get("issue_key")
         if key and key not in seen:

@@ -1,5 +1,7 @@
-# CI do mgi-kpi-pipeline — roda a suíte de testes (pytest) a cada push / MR.
-# pywin32 é marcado como win32-only no requirements, então é ignorado no Linux do runner.
+# CI legado (GitLab) — referência histórica
+#
+# O fluxo principal de CI está em `.github/workflows/tests.yml` (GitHub Actions).
+# Este arquivo pode ser copiado para a raiz como `.gitlab-ci.yml` em forks GitLab.
 
 stages:
   - test
@@ -19,6 +21,7 @@ pytest:
     - python -m pip install --upgrade pip
     - pip install -r requirements-dev.txt
   script:
+    - ruff check .
     - pytest
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'

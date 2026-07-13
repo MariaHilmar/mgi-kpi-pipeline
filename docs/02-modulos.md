@@ -114,9 +114,3 @@ Todos são opcionais: com `MGI_FAST_REPO_SYNC=1` (ou `--sem-git` no
 | `config.py` | Configuração centralizada via env vars (paths, repos, filtros, tokens, modos). |
 | `logging_utils.py` | `configure_logging` / `get_logger` (console + arquivo rotacionado). |
 | `log_maintenance.py` | Remove logs/relatórios além da retenção. |
-
-## Legado (não usado no fluxo atual)
-
-`process_gitlab_issues_v2.py`, geradores de gráfico/Excel e `excel_com_save.py`
-permanecem no repositório por histórico, mas **não são chamados** pelo
-`pipeline_maestro.py`.

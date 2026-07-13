@@ -21,6 +21,8 @@ carrega automaticamente.
 | Variável | Default | Descrição |
 |----------|---------|-----------|
 | `MGI_BASE_DIR` | pasta do workspace | Base para logs/JSON consolidado. |
+| `MGI_REPOS` | *(vazio)* | Clones Git locais: `path=repo_slug;path2=slug2`. Ver `.env.example`. |
+| `MGI_WSL_REPO_PATHS` | slugs MGI padrão | Caminhos WSL para detectores Git: `slug=/wsl/path;...`. |
 | `MGI_ISSUES_JSON` | `mgi-kpi-pipeline/gitlab_issues_raw.json` | Fonte das issues processadas. |
 | `MGI_GIT_DATA_JSON` | `<base>/gitlab_git_data.json` | Saída consolidada da coleta Git. |
 | `MGI_ALL_MODULES` | `1` | `1` = todos os módulos; `0` = só `Fiscalização`/`Fornecedor`. |
@@ -35,8 +37,9 @@ carrega automaticamente.
 | `GITLAB_TOKEN_CONTRATOS_V2` / `GITLAB_TOKEN_CONTRATOS` | vazio | Tokens por repositório. |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | — | **Obrigatórias para o sync.** |
 
-> A data de corte (`DEFAULT_CUTOFF_DATE = 01/01/2024`) e os repositórios
-> (`REPOS`, `GITLAB_PROJECTS`) são definidos em `config.py`.
+> A data de corte (`DEFAULT_CUTOFF_DATE = 01/01/2024`) e os projetos GitLab
+> (`GITLAB_PROJECTS`) são definidos em `config.py`. Os caminhos locais dos
+> clones Git (`REPOS`) vêm de `MGI_REPOS` no `.env`.
 
 ## Execução
 
@@ -78,18 +81,23 @@ python sync_supabase.py
 ## Testes
 
 ```bash
-pytest
+pytest          # inclui cobertura mínima (38%)
+ruff check .    # lint
 ```
 
 A suíte cobre a derivação de campos (`issue_fields`), a construção de records
 (`processar_issues_memoria`), os filtros, as chaves compostas, a taxonomia e o
 cliente de sync (`sync_supabase`, com `requests` mockado).
 
+Configuração em `pyproject.toml` (`pytest`, `coverage`, `ruff`).
+
 ## CI
 
-`.gitlab-ci.yml` roda `pytest` em `python:3.12-slim` a cada push e merge request
-(instala `requirements-dev.txt`). `pywin32` é marcado como win32-only e ignorado
-no runner Linux.
+Repositório canônico no **GitHub** — ver [08-repositorio-github.md](08-repositorio-github.md).
+
+O workflow `.github/workflows/tests.yml` roda `ruff check` e `pytest` (com cobertura)
+em Python 3.11 e 3.12 a cada push/PR em `main`. Referência de CI GitLab legado:
+[legacy-gitlab-ci.yml](legacy-gitlab-ci.yml).
 
 ## Banco de dados
 
@@ -104,5 +112,5 @@ Supabase ou `supabase db push`. Ver detalhes do contrato em
 | `Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY` | `.env` ausente/incompleto | Preencher `mgi-workspace/.env`. |
 | `Nenhum token GitLab definido` | sem `GITLAB_TOKEN*` | Definir token; ou rodar só o sync com JSON existente. |
 | `AVISO: ... DADOS DE TESTE` | JSON sintético no lugar do real | Rodar `atualizar_gitlab_issues.py` com token válido. |
-| Coleta Git vazia | repo WSL inacessível | Verificar `\\wsl.localhost\Ubuntu\root\MGI\...`; o pipeline segue sem Git. |
+| Coleta Git vazia | `MGI_REPOS` vazio ou paths inacessíveis | Definir `MGI_REPOS` no `.env` (ver `.env.example`); o pipeline segue sem Git. |
 | `Erro Supabase issues (4xx)` | schema desatualizado | Aplicar migrations pendentes. |
