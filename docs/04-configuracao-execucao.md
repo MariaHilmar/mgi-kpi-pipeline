@@ -87,9 +87,9 @@ cliente de sync (`sync_supabase`, com `requests` mockado).
 
 ## CI
 
-`.gitlab-ci.yml` roda `pytest` em `python:3.12-slim` a cada push e merge request
-(instala `requirements-dev.txt`). `pywin32` é marcado como win32-only e ignorado
-no runner Linux.
+Repositório canônico no **GitHub** — ver [08-repositorio-github.md](08-repositorio-github.md).
+
+`pytest` localmente (`requirements-dev.txt`). O `.gitlab-ci.yml` no repositório é legado para runners GitLab opcionais; não há espelhamento automático para o GitLab.
 
 ## Banco de dados
 
