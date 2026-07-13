@@ -4,10 +4,30 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Pipeline que coleta dados de issues e commits dos repositórios GitLab do MGI,
-processa tudo **em memória** (taxonomia, área funcional, tipo, enriquecimento
-Dev/Git, qualidade) e sincroniza direto com o Supabase, que alimenta o dashboard
-web `mgi-kpi-dashboard`. **O Excel não faz mais parte do fluxo.**
+> **Projeto de portfólio pessoal** de [Maria Hilmar](https://github.com/MariaHilmar).
+> O pipeline foi desenvolvido a partir da experiência com dados e fluxos do ecossistema
+> **MGI** (issues GitLab, commits e KPIs de contratos), mas **este repositório não é
+> oficial** nem representa o Ministério ou qualquer órgão público. É uma demonstração
+> de engenharia de dados e automação com stack Python + Supabase.
+
+Pipeline que coleta dados de issues e commits de repositórios GitLab (no contexto MGI,
+projetos `comprasnet/*`), processa tudo **em memória** (taxonomia, área funcional,
+tipo, enriquecimento Dev/Git, qualidade) e sincroniza com o Supabase, que alimenta o
+dashboard web [`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard)
+— também projeto de portfólio. **O Excel não faz mais parte do fluxo.**
+
+## Sobre este projeto
+
+| | |
+|---|---|
+| **O que é** | ETL/orquestração em Python para KPIs de issues e Git, com testes e CI |
+| **Origem dos dados** | APIs e clones Git configuráveis via `.env` (ex.: GitLab `comprasnet/contratos_v2`) |
+| **O que não é** | Sistema institucional, deploy governamental ou produto mantido pelo MGI |
+| **Para quem** | Portfólio técnico — mostra desenho de pipeline, regras de negócio e integração com banco |
+
+Para rodar localmente você precisa de **seus próprios tokens** (`GITLAB_TOKEN`,
+`SUPABASE_*`) e caminhos de repositório (`MGI_REPOS`). Nenhuma credencial ou dado
+real do ambiente original está versionado neste repo.
 
 ## Fluxo geral
 
@@ -145,7 +165,7 @@ com `requests` mockado), além das funções puras de taxonomia, datas e chaves.
 
 ## Repositório e CI
 
-**Repositório canônico:** [GitHub — MariaHilmar/mgi-kpi-pipeline](https://github.com/MariaHilmar/mgi-kpi-pipeline).  
+**Repositório canônico (portfólio):** [GitHub — MariaHilmar/mgi-kpi-pipeline](https://github.com/MariaHilmar/mgi-kpi-pipeline).  
 Detalhes em [docs/08-repositorio-github.md](docs/08-repositorio-github.md).
 
 CI no GitHub Actions: `ruff check` + `pytest` (Python 3.11/3.12). Referência
