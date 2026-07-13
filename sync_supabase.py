@@ -19,7 +19,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -30,6 +30,7 @@ from gitlab_identities import (
     prepare_issue_rows_for_upsert,
 )
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
+from logging_utils import get_logger
 from processar_issues_memoria import build_issue_records, resolve_enable_git
 
 try:
@@ -37,12 +38,13 @@ try:
 except ImportError:
     _config = None
 
+log = get_logger(__name__)
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _issues_json_path(explicit: Optional[Path]) -> Path:
+def _issues_json_path(explicit: Path | None) -> Path:
     if explicit:
         return explicit
     if _config and hasattr(_config, "ISSUES_JSON"):
@@ -56,7 +58,7 @@ def _git_data_path() -> Path:
     return Path(__file__).resolve().parent.parent / "gitlab_git_data.json"
 
 
-def _load_issues_json(path: Path) -> List[Dict[str, Any]]:
+def _load_issues_json(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise SystemExit(f"JSON de issues nao encontrado: {path}")
     with open(path, encoding="utf-8") as handle:
@@ -68,23 +70,23 @@ def _load_issues_json(path: Path) -> List[Dict[str, Any]]:
     return []
 
 
-def _cutoff_date() -> Optional[datetime]:
+def _cutoff_date() -> datetime | None:
     if _config and hasattr(_config, "DEFAULT_CUTOFF_DATE"):
         return _config.DEFAULT_CUTOFF_DATE
     return datetime(2024, 1, 1)
 
 
-def _filter_issues_for_sync(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _filter_issues_for_sync(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aplica os mesmos filtros do pipeline: fechadas antigas + data de corte."""
     filtered, excluded = filtrar_issues_fechadas_antigas(issues)
     if excluded:
-        print(f"OK - {excluded} issues fechadas antigas ignoradas")
+        log.info(f"OK - {excluded} issues fechadas antigas ignoradas")
 
     cutoff = _cutoff_date()
     if cutoff is None:
         return filtered
 
-    kept: List[Dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
     before = 0
     for issue in filtered:
         created = parse_issue_datetime(issue.get("createdDate", ""))
@@ -93,7 +95,7 @@ def _filter_issues_for_sync(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]
             continue
         kept.append(issue)
     if before:
-        print(f"OK - {before} issues criadas antes de {cutoff:%d/%m/%Y} ignoradas")
+        log.info(f"OK - {before} issues criadas antes de {cutoff:%d/%m/%Y} ignoradas")
     return kept
 
 
@@ -107,7 +109,7 @@ class SupabaseSync:
             "Prefer": "resolution=merge-duplicates,return=minimal",
         }
 
-    def upsert_gitlab_users(self, rows: List[Dict[str, Any]]) -> int:
+    def upsert_gitlab_users(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         response = requests.post(
@@ -123,7 +125,7 @@ class SupabaseSync:
             )
         return len(rows)
 
-    def replace_issue_participants(self, issue_keys: List[str], rows: List[Dict[str, Any]]) -> int:
+    def replace_issue_participants(self, issue_keys: list[str], rows: list[dict[str, Any]]) -> int:
         if issue_keys:
             keys_filter = f"in.({','.join(json.dumps(key) for key in issue_keys)})"
             delete_response = requests.delete(
@@ -156,7 +158,7 @@ class SupabaseSync:
             total += len(chunk)
         return total
 
-    def upsert_issues(self, rows: List[Dict[str, Any]]) -> int:
+    def upsert_issues(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         total = 0
@@ -175,10 +177,10 @@ class SupabaseSync:
                     f"Erro Supabase issues ({response.status_code}): {detail}"
                 )
             total += len(chunk)
-            print(f"OK - Enviadas {total}/{len(rows)} issues")
+            log.info(f"OK - Enviadas {total}/{len(rows)} issues")
         return total
 
-    def upsert_releases(self, rows: List[Dict[str, Any]]) -> int:
+    def upsert_releases(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
         response = requests.post(
@@ -243,32 +245,32 @@ def _notify_dashboard(url: str, secret: str) -> None:
             timeout=15,
         )
         if response.ok:
-            print(f"OK - Cache do dashboard invalidado ({endpoint})")
+            log.info(f"OK - Cache do dashboard invalidado ({endpoint})")
         else:
-            print(f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}")
+            log.warning(f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}")
     except Exception as exc:
-        print(f"AVISO - Nao foi possivel notificar o dashboard: {exc}")
+        log.warning(f"AVISO - Nao foi possivel notificar o dashboard: {exc}")
 
 
-def _dedupe_releases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    seen: Dict[tuple[str, str], Dict[str, Any]] = {}
+def _dedupe_releases(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
     for record in rows:
         key = (str(record["repositorio"]), str(record["versao"]))
         seen[key] = record
     return list(seen.values())
 
 
-def _load_releases(path: Path) -> List[Dict[str, Any]]:
+def _load_releases(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
 
     with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     synced_at = _utc_now()
 
-    def append(repo_name: str, rel: Dict[str, Any]) -> None:
+    def append(repo_name: str, rel: dict[str, Any]) -> None:
         versao = str(rel.get("versao", "")).strip()
         if not versao:
             return
@@ -314,14 +316,14 @@ def _load_dotenv() -> None:
             value = value.strip().strip('"').strip("'")
             if key:
                 os.environ[key] = value
-        print(f"OK - Variaveis carregadas de {path}")
+        log.info(f"OK - Variaveis carregadas de {path}")
         return
 
 
 def sync_issues_to_supabase(
-    issues: Optional[List[Dict[str, Any]]] = None,
+    issues: list[dict[str, Any]] | None = None,
     *,
-    json_path: Optional[Path] = None,
+    json_path: Path | None = None,
     include_releases: bool = True,
     enable_git: bool = True,
 ) -> int:
@@ -338,45 +340,44 @@ def sync_issues_to_supabase(
 
     if issues is None:
         path = _issues_json_path(json_path)
-        print(f"OK - Carregando issues de {path}")
+        log.info(f"OK - Carregando issues de {path}")
         issues = _load_issues_json(path)
 
     issues = _filter_issues_for_sync(issues)
     git_enabled = resolve_enable_git(enable_git)
     if enable_git and not git_enabled:
-        print(
+        log.warning(
             "AVISO - WSL/Git indisponivel ou MGI_FAST_REPO_SYNC=1. "
             "Usando titulo/labels (sem detectores Git).",
-            flush=True,
         )
-    print(f"OK - Processando {len(issues)} issues em memoria", flush=True)
+    log.info(f"OK - Processando {len(issues)} issues em memoria")
     raw_records = build_issue_records(issues, enable_git=git_enabled)
     synced_at = raw_records[0]["synced_at"] if raw_records else _utc_now()
     gitlab_users = collect_gitlab_users_from_records(raw_records, synced_at)
     participant_rows = build_participant_rows(raw_records)
     rows = prepare_issue_rows_for_upsert(raw_records)
     issue_keys = issue_keys_from_records(raw_records)
-    print(f"OK - {len(rows)} issues unicas preparadas")
+    log.info(f"OK - {len(rows)} issues unicas preparadas")
 
     client = SupabaseSync(url, key)
-    run_id: Optional[str] = None
+    run_id: str | None = None
     try:
         run_id = client.start_sync_run()
     except Exception as exc:
-        print(f"AVISO - sync_runs indisponivel ({exc}). Continuando upsert...")
+        log.warning(f"AVISO - sync_runs indisponivel ({exc}). Continuando upsert...")
 
     try:
         if gitlab_users:
             client.upsert_gitlab_users(gitlab_users)
-            print(f"OK - {len(gitlab_users)} identidades GitLab sincronizadas")
+            log.info(f"OK - {len(gitlab_users)} identidades GitLab sincronizadas")
         upserted = client.upsert_issues(rows)
         participant_count = client.replace_issue_participants(issue_keys, participant_rows)
-        print(f"OK - {participant_count} participantes de issues sincronizados")
+        log.info(f"OK - {participant_count} participantes de issues sincronizados")
         release_count = 0
         if include_releases:
             release_rows = _dedupe_releases(_load_releases(_git_data_path()))
             release_count = client.upsert_releases(release_rows)
-            print(f"OK - {release_count} releases sincronizadas")
+            log.info(f"OK - {release_count} releases sincronizadas")
 
         if run_id:
             client.finish_sync_run(
@@ -386,14 +387,14 @@ def sync_issues_to_supabase(
                 releases=release_count,
                 message="sync from gitlab_issues_raw.json",
             )
-        print(f"OK - Sync concluido: {upserted} issues")
+        log.info(f"OK - Sync concluido: {upserted} issues")
 
         dashboard_url = os.environ.get("DASHBOARD_URL", "").strip()
         revalidate_secret = os.environ.get("REVALIDATE_SECRET", "").strip()
         if dashboard_url and revalidate_secret:
             _notify_dashboard(dashboard_url, revalidate_secret)
         else:
-            print("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
+            log.warning("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
 
         return upserted
     except Exception as exc:

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
 
 try:
     import config
@@ -13,7 +12,7 @@ except ImportError:
     config = None
 
 
-def parse_issue_datetime(date_str: Optional[str]) -> Optional[datetime]:
+def parse_issue_datetime(date_str: str | None) -> datetime | None:
     """Parse datas GitLab (ISO 8601 ou formato humanizado)."""
     if not date_str:
         return None
@@ -42,16 +41,16 @@ def _closed_exclude_days() -> int:
 
 
 def filtrar_issues_fechadas_antigas(
-    issues: List[Dict],
-    days: Optional[int] = None,
-) -> Tuple[List[Dict], int]:
+    issues: list[dict],
+    days: int | None = None,
+) -> tuple[list[dict], int]:
     """Exclui issues fechadas ha mais de N dias. Mantem abertas e fechadas recentes."""
     exclude_days = _closed_exclude_days() if days is None else days
     if exclude_days <= 0:
         return issues, 0
 
     cutoff = datetime.now() - timedelta(days=exclude_days)
-    kept: List[Dict] = []
+    kept: list[dict] = []
     excluded = 0
 
     for issue in issues:

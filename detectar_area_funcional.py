@@ -17,8 +17,8 @@ import re
 import shlex
 import subprocess
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     import config as _config
@@ -37,7 +37,7 @@ except ImportError:
 DEFAULT_WSL_REPO = "/root/MGI/contratos_v2"
 DEFAULT_BASE_BRANCH = "master"
 
-FILE_AREA_RULES: Sequence[Tuple[str, str]] = (
+FILE_AREA_RULES: Sequence[tuple[str, str]] = (
     (r"InstrumentoCobranca|instrumento.?cobranca|InstrumentoCobrancaService|/ic[/\"']", "Instrumento de Cobrança"),
     (r"TermoRecebimentoDefinitivo|/trd[/\"']|TRDCrud", "TRD"),
     (r"TermoRecebimentoProvisorio|/trp[/\"']|TRPCrud", "TRP"),
@@ -54,7 +54,7 @@ FILE_AREA_RULES: Sequence[Tuple[str, str]] = (
     (r"MinutaEmpenho|minuta.?empenho|/empenho[/\"']", "Minuta de Empenho"),
 )
 
-TEXT_AREA_RULES: Sequence[Tuple[str, str]] = (
+TEXT_AREA_RULES: Sequence[tuple[str, str]] = (
     (r"integra(?:ç|c)?(?:ã|a)o\s+ic\s*>\s*trd|integracao\s+ic.*trd", "Integração IC > TRD"),
     (r"termo\s+recebimento\s+provis|\btrp\b|visualizar\s+trp|consultar\s+trp", "TRP"),
     (r"termo\s+recebimento\s+definitivo|\btrd\b|visualizar\s+trd|consultar\s+trd", "TRD"),
@@ -76,7 +76,7 @@ TEXT_AREA_RULES: Sequence[Tuple[str, str]] = (
 # Mapeamento canônico: módulo canônico → área padrão.
 # Usado como fallback quando nenhuma outra fonte de área está disponível.
 # Prioridade elevada: se o módulo está claro, a área padrão é aplicada diretamente.
-CANONICAL_MODULE_TO_DEFAULT_AREA: Dict[str, str] = {
+CANONICAL_MODULE_TO_DEFAULT_AREA: dict[str, str] = {
     "Gestão de Atas": "Gestão de Atas",
     "Gestão Contratual": "Gestão Contratual",
     "Administração": "Administração",
@@ -92,7 +92,7 @@ CANONICAL_MODULE_TO_DEFAULT_AREA: Dict[str, str] = {
 }
 
 # Mapeamento estendido: tags/aliases → área (para inferência via título e módulo raw)
-MODULE_TO_AREA: Dict[str, str] = {
+MODULE_TO_AREA: dict[str, str] = {
     # Canônicos diretos
     "PNCP": "PNCP",
     "Fornecedor": "Portal Fornecedor",
@@ -190,7 +190,7 @@ MODULE_TO_AREA: Dict[str, str] = {
     "Parâmetros": "Parâmetros",
 }
 
-_MODULE_ALIASES: Dict[str, str] = {
+_MODULE_ALIASES: dict[str, str] = {
     re.sub(r"\s+", " ", k.strip().casefold()): v for k, v in MODULE_TO_AREA.items()
 }
 
@@ -206,7 +206,7 @@ _TITLE_AREA_DENYLIST = frozenset(
     }
 )
 
-_FILE_RULE_WEIGHTS: Dict[str, int] = {
+_FILE_RULE_WEIGHTS: dict[str, int] = {
     "Portal Fornecedor": 1,
 }
 
@@ -230,10 +230,10 @@ class AreaFuncionalDetector:
         self.wsl_repo_path = wsl_repo_path
         self.base_branch = base_branch
         self.enabled = enabled
-        self._branch_index: Optional[Dict[str, List[str]]] = None
-        self._files_cache: Dict[str, List[str]] = {}
+        self._branch_index: dict[str, list[str]] | None = None
+        self._files_cache: dict[str, list[str]] = {}
 
-    def detect(self, issue: Dict, title_area: str = "") -> AreaDetection:
+    def detect(self, issue: dict, title_area: str = "") -> AreaDetection:
         title_area = _normalize_title_area(title_area)
         if title_area:
             return AreaDetection(title_area, "titulo_explicito", 1.0)
@@ -299,7 +299,7 @@ class AreaFuncionalDetector:
             return
 
         output = self._run_git("branch -a --format='%(refname:short)'")
-        index: Dict[str, List[str]] = {}
+        index: dict[str, list[str]] = {}
         for line in output.splitlines():
             branch = _normalize_branch_name(line.strip())
             if not branch:
@@ -310,13 +310,13 @@ class AreaFuncionalDetector:
                 index.setdefault(match.group(1), []).append(branch)
         self._branch_index = index
 
-    def _branches_for_issue(self, issue_id: str) -> List[str]:
+    def _branches_for_issue(self, issue_id: str) -> list[str]:
         self._ensure_branch_index()
         if not self._branch_index:
             return []
         return self._branch_index.get(issue_id, [])
 
-    def _branch_refs(self, branch: str) -> List[str]:
+    def _branch_refs(self, branch: str) -> list[str]:
         short = branch.split("/")[-1]
         refs = []
         if branch.startswith("origin/"):
@@ -324,8 +324,8 @@ class AreaFuncionalDetector:
         refs.extend([f"origin/{short}", short])
         return list(dict.fromkeys(refs))
 
-    def _collect_paths_from_git_output(self, output: str) -> List[str]:
-        paths: List[str] = []
+    def _collect_paths_from_git_output(self, output: str) -> list[str]:
+        paths: list[str] = []
         for line in output.splitlines():
             path = line.strip()
             if not path or path.startswith("."):
@@ -334,8 +334,8 @@ class AreaFuncionalDetector:
                 paths.append(path)
         return paths
 
-    def _files_from_branches(self, issue_id: str, branches: List[str]) -> List[str]:
-        files: List[str] = []
+    def _files_from_branches(self, issue_id: str, branches: list[str]) -> list[str]:
+        files: list[str] = []
         max_branches = int(os.environ.get("MGI_AREA_MAX_BRANCHES", "2"))
         for branch in branches[:max_branches]:
             for ref in self._branch_refs(branch)[:1]:
@@ -345,8 +345,8 @@ class AreaFuncionalDetector:
                 files.extend(self._collect_paths_from_git_output(diff_files))
         return files
 
-    def _files_from_commit_grep(self, issue_id: str, limited: bool = False) -> List[str]:
-        files: List[str] = []
+    def _files_from_commit_grep(self, issue_id: str, limited: bool = False) -> list[str]:
+        files: list[str] = []
         patterns = [
             f"#{issue_id}",
             f"{issue_id}-",
@@ -365,12 +365,12 @@ class AreaFuncionalDetector:
             files.extend(self._collect_paths_from_git_output(output))
         return files
 
-    def _files_for_issue(self, issue_id: str) -> List[str]:
+    def _files_for_issue(self, issue_id: str) -> list[str]:
         if issue_id in self._files_cache:
             return self._files_cache[issue_id]
 
         branches = self._branches_for_issue(issue_id)
-        files: List[str] = []
+        files: list[str] = []
         if branches:
             files.extend(self._files_from_branches(issue_id, branches))
             files.extend(self._files_from_commit_grep(issue_id))
@@ -401,7 +401,7 @@ def _normalize_title_area(area: str) -> str:
     return cleaned
 
 
-def _infer_area_from_files(files: Sequence[str]) -> Optional[str]:
+def _infer_area_from_files(files: Sequence[str]) -> str | None:
     if not files:
         return None
     scores: Counter = Counter()
@@ -414,7 +414,7 @@ def _infer_area_from_files(files: Sequence[str]) -> Optional[str]:
     return scores.most_common(1)[0][0]
 
 
-def _infer_area_from_text(text: str) -> Optional[str]:
+def _infer_area_from_text(text: str) -> str | None:
     if not text:
         return None
     normalized = text.lower()
@@ -425,7 +425,7 @@ def _infer_area_from_text(text: str) -> Optional[str]:
     return None
 
 
-def _infer_area_from_module(title: str) -> Optional[str]:
+def _infer_area_from_module(title: str) -> str | None:
     match = re.match(r"^\[([^\]\}]+)", title or "")
     if not match:
         return None
@@ -435,7 +435,7 @@ def _infer_area_from_module(title: str) -> Optional[str]:
     normalized = re.sub(r"\s+", " ", module.casefold())
     return _MODULE_ALIASES.get(normalized)
 
-def _infer_default_area_from_canonical_module(title: str) -> Optional[str]:
+def _infer_default_area_from_canonical_module(title: str) -> str | None:
     """Retorna área padrão quando o módulo canônico está claro no título.
 
     Usa apenas os 12 canônicos + mapeamento direto módulo→área.
@@ -467,7 +467,7 @@ class MultiRepoAreaDetector:
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled
-        self._detectors: Dict[str, AreaFuncionalDetector] = {}
+        self._detectors: dict[str, AreaFuncionalDetector] = {}
 
     def _get_detector(self, repo: str) -> AreaFuncionalDetector:
         if repo not in self._detectors:
@@ -477,7 +477,7 @@ class MultiRepoAreaDetector:
             )
         return self._detectors[repo]
 
-    def detect(self, issue: Dict, title_area: str = "") -> AreaDetection:
+    def detect(self, issue: dict, title_area: str = "") -> AreaDetection:
         title_area = _normalize_title_area(title_area)
         if title_area:
             return AreaDetection(title_area, "titulo_explicito", 1.0)

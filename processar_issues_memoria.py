@@ -15,19 +15,22 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import issue_fields
 from gitlab_identities import enrich_records_with_developer_ids
 from issue_keys import get_gitlab_repo, repo_display_name
+from logging_utils import get_logger
+
+log = get_logger(__name__)
 
 try:
     import config as _config
 except ImportError:
     _config = None
 
-_WSL_GIT_AVAILABLE: Optional[bool] = None
-_LOCAL_GIT_AVAILABLE: Optional[bool] = None
+_WSL_GIT_AVAILABLE: bool | None = None
+_LOCAL_GIT_AVAILABLE: bool | None = None
 
 
 def probe_local_git_repos() -> bool:
@@ -113,7 +116,7 @@ def build_detectors(enable_git: bool = True):
     return area, tipo, dev
 
 
-def _resolve_area(issue: Dict, title: str, area_detector) -> "AreaDetection":
+def _resolve_area(issue: dict, title: str, area_detector) -> AreaDetection:
     title_area = issue_fields.extract_functional_area(title)
     if area_detector is not None:
         return area_detector.detect(issue, title_area=title_area)
@@ -130,7 +133,7 @@ def _resolve_area(issue: Dict, title: str, area_detector) -> "AreaDetection":
     return _Simple(title_area, 1.0 if title_area else 0.0)
 
 
-def _resolve_tipo(issue: Dict, label_tipo: str, tipo_detector) -> str:
+def _resolve_tipo(issue: dict, label_tipo: str, tipo_detector) -> str:
     if label_tipo:
         return label_tipo
     if tipo_detector is not None:
@@ -138,7 +141,7 @@ def _resolve_tipo(issue: Dict, label_tipo: str, tipo_detector) -> str:
     return ""
 
 
-def _parse_gitlab_int(value) -> Optional[int]:
+def _parse_gitlab_int(value) -> int | None:
     if value is None or value == "":
         return None
     try:
@@ -148,7 +151,7 @@ def _parse_gitlab_int(value) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
-def _person_meta(person: Dict) -> Optional[Dict[str, Any]]:
+def _person_meta(person: dict) -> dict[str, Any] | None:
     user_id = _parse_gitlab_int(person.get("id"))
     if not user_id:
         return None
@@ -160,11 +163,11 @@ def _person_meta(person: Dict) -> Optional[Dict[str, Any]]:
     }
 
 
-def _build_gitlab_identity_fields(issue: Dict) -> Dict[str, Any]:
+def _build_gitlab_identity_fields(issue: dict) -> dict[str, Any]:
     author = issue.get("author") if isinstance(issue.get("author"), dict) else {}
-    participants: List[Dict[str, Any]] = []
-    user_meta: List[Dict[str, Any]] = []
-    assignee_ids: List[int] = []
+    participants: list[dict[str, Any]] = []
+    user_meta: list[dict[str, Any]] = []
+    assignee_ids: list[int] = []
 
     author_meta = _person_meta(author)
     author_id = author_meta["id"] if author_meta else None
@@ -207,7 +210,7 @@ def _build_gitlab_identity_fields(issue: Dict) -> Dict[str, Any]:
     }
 
 
-def _resolve_dev(issue: Dict, dev_enricher) -> Dict[str, Any]:
+def _resolve_dev(issue: dict, dev_enricher) -> dict[str, Any]:
     mr_count = issue.get("merge_requests_count") or 0
     try:
         mr_count = int(mr_count)
@@ -257,14 +260,14 @@ def _resolve_dev(issue: Dict, dev_enricher) -> Dict[str, Any]:
 
 
 def build_issue_record(
-    issue: Dict,
+    issue: dict,
     *,
     area_detector=None,
     tipo_detector=None,
     dev_enricher=None,
-    synced_at: Optional[str] = None,
-    today: Optional[date] = None,
-) -> Optional[Dict[str, Any]]:
+    synced_at: str | None = None,
+    today: date | None = None,
+) -> dict[str, Any] | None:
     """Constroi um registro Supabase a partir de uma issue crua. None se sem IID."""
     iid_raw = str(issue.get("id", "")).strip()
     if not iid_raw:
@@ -295,7 +298,7 @@ def build_issue_record(
 
     tipo = _resolve_tipo(issue, labels["tipo"], tipo_detector)
 
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "issue_key": issue_key,
         "gitlab_repo": repo_label,
         "gitlab_iid": gitlab_iid,
@@ -352,14 +355,14 @@ def build_issue_record(
 
 
 def build_issue_records(
-    issues: List[Dict],
+    issues: list[dict],
     *,
     enable_git: bool = True,
     area_detector=None,
     tipo_detector=None,
     dev_enricher=None,
-    today: Optional[date] = None,
-) -> List[Dict[str, Any]]:
+    today: date | None = None,
+) -> list[dict[str, Any]]:
     """Processa a lista de issues e devolve registros unicos (por issue_key).
 
     Se nenhum detector for passado explicitamente, eles sao construidos conforme
@@ -370,13 +373,13 @@ def build_issue_records(
 
     if area_detector is None and tipo_detector is None and dev_enricher is None:
         mode = "Git + titulo/labels" if git_on else "rapido - titulo/labels"
-        print(f"OK - Modo: {mode}", flush=True)
+        log.info(f"OK - Modo: {mode}")
         area_detector, tipo_detector, dev_enricher = build_detectors(git_on)
 
-    print(f"OK - Iniciando processamento de {total} issues...", flush=True)
+    log.info(f"OK - Iniciando processamento de {total} issues...")
 
     synced_at = _utc_now_iso()
-    seen: Dict[str, Dict[str, Any]] = {}
+    seen: dict[str, dict[str, Any]] = {}
     progress_step = max(25, total // 20) if total else 1
 
     for index, issue in enumerate(issues, start=1):
@@ -391,7 +394,7 @@ def build_issue_records(
         if record:
             seen[record["issue_key"]] = record
         if index == 1 or index == total or index % progress_step == 0:
-            print(f"OK - Processadas {index}/{total} issues...", flush=True)
+            log.info(f"OK - Processadas {index}/{total} issues...")
 
     records = list(seen.values())
     enrich_records_with_developer_ids(records)

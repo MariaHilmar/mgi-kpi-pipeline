@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Dict, List, Optional
 
 import taxonomy
 
 # Mapeamento de tags de modulo nao canonicas -> rotulo final (paridade com o
 # pipeline legado em process_gitlab_issues_v2.MODULE_MAP).
-MODULE_MAP: Dict[str, str] = {
+MODULE_MAP: dict[str, str] = {
     "Gestão de Ata": "Gestão de Atas",
     "GESTÃO DE ATAS": "Gestão de Atas",
     "Transparência": "Transparência",
@@ -48,7 +47,7 @@ MANUAL_FIELDS = (
 )
 
 
-def parse_date(date_str: Optional[str]) -> Optional[datetime]:
+def parse_date(date_str: str | None) -> datetime | None:
     """Converte data do GitLab (ISO 8601 ou formato humanizado) em datetime."""
     if not date_str:
         return None
@@ -98,7 +97,7 @@ def extract_functional_area(title: str) -> str:
     return area
 
 
-def map_estado(state: Optional[str]) -> str:
+def map_estado(state: str | None) -> str:
     if state == "opened":
         return "Aberto"
     if state == "closed":
@@ -106,7 +105,7 @@ def map_estado(state: Optional[str]) -> str:
     return state or ""
 
 
-def parse_labels(labels: Optional[List[str]]) -> Dict[str, str]:
+def parse_labels(labels: list[str] | None) -> dict[str, str]:
     """Extrai colunas derivadas das labels GitLab (paridade com o legado)."""
     parsed = {
         "tipo": "",
@@ -135,13 +134,13 @@ def parse_labels(labels: Optional[List[str]]) -> Dict[str, str]:
     return parsed
 
 
-def format_assignees(issue: Dict) -> str:
+def format_assignees(issue: dict) -> str:
     assignees = issue.get("assignees") or []
     names = [person.get("name", "") for person in assignees if person.get("name")]
     return ", ".join(names)
 
 
-def faixa_idade(idade_dias: Optional[int], aberto: bool) -> Optional[str]:
+def faixa_idade(idade_dias: int | None, aberto: bool) -> str | None:
     """Faixa etaria da issue aberta (mesmas faixas do dashboard_faixa_idade)."""
     if not aberto or idade_dias is None:
         return None
@@ -157,18 +156,18 @@ def faixa_idade(idade_dias: Optional[int], aberto: bool) -> Optional[str]:
 
 
 def derive_date_fields(
-    created_date: Optional[datetime],
-    closed_date: Optional[datetime],
+    created_date: datetime | None,
+    closed_date: datetime | None,
     estado: str,
     *,
-    today: Optional[date] = None,
-) -> Dict[str, object]:
+    today: date | None = None,
+) -> dict[str, object]:
     """Campos derivados de datas/estado (datas, lead time, idade, SLA, flags)."""
     today = today or date.today()
     aberto = estado == "Aberto"
     fechado = estado == "Fechado"
 
-    fields: Dict[str, object] = {
+    fields: dict[str, object] = {
         "criado_em": created_date.isoformat() if created_date else None,
         "fechado_em": closed_date.isoformat() if closed_date else None,
         "ano_mes_criacao": None,
@@ -212,6 +211,6 @@ def quality_fields(
     modulo: str,
     area: str,
     area_confidence: float = 0.0,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Campos de qualidade (categoria, modulo_ok, area_ok, padroes, confianca)."""
     return taxonomy.assess_row_quality(title, modulo, area, area_confidence)

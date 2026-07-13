@@ -23,7 +23,6 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 try:
@@ -33,6 +32,9 @@ except ImportError:
 
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 from issue_keys import make_issue_key
+from logging_utils import get_logger
+
+log = get_logger(__name__)
 
 # Padroes tipicos do JSON de teste/fabricado (nao vem do GitLab real)
 MARCADORES_JSON_SINTETICO = (
@@ -48,7 +50,7 @@ DEFAULT_OVERLAP_SECONDS = int(os.environ.get("MGI_SYNC_OVERLAP_SECONDS", "120"))
 DEFAULT_BOOTSTRAP_DAYS = int(os.environ.get("MGI_SYNC_BOOTSTRAP_DAYS", "7"))
 
 
-def _output_path(output_file: Optional[str] = None) -> Path:
+def _output_path(output_file: str | None = None) -> Path:
     if output_file:
         return Path(output_file)
     if config:
@@ -60,7 +62,7 @@ def _sync_state_path(issues_path: Path) -> Path:
     return issues_path.parent / SYNC_STATE_FILENAME
 
 
-def _gitlab_projects() -> List[Tuple[str, str]]:
+def _gitlab_projects() -> list[tuple[str, str]]:
     if config and getattr(config, "GITLAB_PROJECTS", None):
         return list(config.GITLAB_PROJECTS)
     return [
@@ -69,7 +71,7 @@ def _gitlab_projects() -> List[Tuple[str, str]]:
     ]
 
 
-def _mapear_issue_api(issue: Dict, gitlab_repo: str) -> Dict:
+def _mapear_issue_api(issue: dict, gitlab_repo: str) -> dict:
     """Mapeia resposta da API GitLab para o formato do pipeline."""
     author = issue.get("author") or {}
     assignees = issue.get("assignees") or []
@@ -105,7 +107,7 @@ def _mapear_issue_api(issue: Dict, gitlab_repo: str) -> Dict:
     }
 
 
-def json_parece_sintetico(issues: List[Dict]) -> bool:
+def json_parece_sintetico(issues: list[dict]) -> bool:
     """Detecta se o JSON parece dados de teste, nao exportacao real do GitLab."""
     if not issues:
         return False
@@ -123,7 +125,7 @@ def _gitlab_token_for_repo(gitlab_repo: str) -> str:
     return by_repo.get(gitlab_repo, "") or os.environ.get("GITLAB_TOKEN", "")
 
 
-def _tokens_configurados() -> List[str]:
+def _tokens_configurados() -> list[str]:
     if config and hasattr(config, "gitlab_tokens_configurados"):
         return config.gitlab_tokens_configurados()
     repos = [repo for _, repo in _gitlab_projects()]
@@ -137,7 +139,7 @@ def format_gitlab_datetime(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_issues_list(path: Path) -> List[Dict]:
+def load_issues_list(path: Path) -> list[dict]:
     """Carrega issues do JSON local (lista ou objeto com chave issues)."""
     if not path.exists():
         return []
@@ -150,9 +152,9 @@ def load_issues_list(path: Path) -> List[Dict]:
     return []
 
 
-def index_issues_by_key(issues: List[Dict]) -> Dict[str, Dict]:
+def index_issues_by_key(issues: list[dict]) -> dict[str, dict]:
     """Indexa issues pela chave composta repositorio:iid."""
-    indexed: Dict[str, Dict] = {}
+    indexed: dict[str, dict] = {}
     for issue in issues:
         key = make_issue_key(issue)
         if key:
@@ -161,10 +163,10 @@ def index_issues_by_key(issues: List[Dict]) -> Dict[str, Dict]:
 
 
 def compute_sync_watermark(
-    indexed: Dict[str, Dict],
+    indexed: dict[str, dict],
     state_path: Path,
     *,
-    since_override: Optional[str] = None,
+    since_override: str | None = None,
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS,
 ) -> datetime:
     """Calcula o instante updated_after para sync incremental."""
@@ -183,7 +185,7 @@ def compute_sync_watermark(
         except (json.JSONDecodeError, OSError):
             pass
 
-    max_dt: Optional[datetime] = None
+    max_dt: datetime | None = None
     for issue in indexed.values():
         for field in ("updatedDate", "createdDate"):
             parsed = parse_issue_datetime(issue.get(field, ""))
@@ -197,9 +199,9 @@ def compute_sync_watermark(
 
 
 def merge_issues_into_index(
-    indexed: Dict[str, Dict],
-    fetched: List[Dict],
-) -> Tuple[int, int]:
+    indexed: dict[str, dict],
+    fetched: list[dict],
+) -> tuple[int, int]:
     """Mescla issues buscadas no indice local. Retorna (novas, atualizadas)."""
     added = 0
     updated = 0
@@ -220,8 +222,8 @@ def _buscar_issues_projeto(
     gitlab_repo: str,
     gitlab_token: str,
     *,
-    updated_after: Optional[datetime] = None,
-) -> List[Dict]:
+    updated_after: datetime | None = None,
+) -> list[dict]:
     """Busca issues de um projeto via API REST do GitLab."""
     import requests
 
@@ -229,11 +231,11 @@ def _buscar_issues_projeto(
 
     headers = {"PRIVATE-TOKEN": gitlab_token}
     url = f"{gitlab_url}/api/v4/projects/{project_id}/issues"
-    params: Dict[str, object] = {"scope": "all", "state": "all", "per_page": 100, "page": 1}
+    params: dict[str, object] = {"scope": "all", "state": "all", "per_page": 100, "page": 1}
     if updated_after is not None:
         params["updated_after"] = format_gitlab_datetime(updated_after)
 
-    issues: List[Dict] = []
+    issues: list[dict] = []
     while True:
         response = requests.get(url, headers=headers, params=params, timeout=60)
         response.raise_for_status()
@@ -247,7 +249,7 @@ def _buscar_issues_projeto(
     return issues
 
 
-def buscar_issues_gitlab(*, updated_after: Optional[datetime] = None) -> List[Dict]:
+def buscar_issues_gitlab(*, updated_after: datetime | None = None) -> list[dict]:
     """Busca issues de todos os projetos configurados (contratos_v2 + contratos)."""
     configured = _tokens_configurados()
     if not configured:
@@ -258,19 +260,19 @@ def buscar_issues_gitlab(*, updated_after: Optional[datetime] = None) -> List[Di
             "Gere tokens em https://gitlab.com/-/user_settings/personal_access_tokens"
         )
 
-    all_issues: List[Dict] = []
+    all_issues: list[dict] = []
     for project_id, repo_name in _gitlab_projects():
         gitlab_token = _gitlab_token_for_repo(repo_name)
         if not gitlab_token:
-            print(
+            log.info(
                 f"   -> Pulando {repo_name}: sem token "
                 f"(defina GITLAB_TOKEN_{repo_name.upper()} ou GITLAB_TOKEN)"
             )
             continue
         if updated_after is None:
-            print(f"   -> Buscando {repo_name} ({project_id}) [completo]...")
+            log.info(f"   -> Buscando {repo_name} ({project_id}) [completo]...")
         else:
-            print(
+            log.info(
                 f"   -> Buscando {repo_name} ({project_id}) "
                 f"[desde {format_gitlab_datetime(updated_after)}]..."
             )
@@ -280,7 +282,7 @@ def buscar_issues_gitlab(*, updated_after: Optional[datetime] = None) -> List[Di
             gitlab_token,
             updated_after=updated_after,
         )
-        print(f"      {len(project_issues)} issues")
+        log.info(f"      {len(project_issues)} issues")
         all_issues.extend(project_issues)
 
     if not all_issues and updated_after is None:
@@ -291,27 +293,27 @@ def buscar_issues_gitlab(*, updated_after: Optional[datetime] = None) -> List[Di
     return all_issues
 
 
-def _aplicar_filtro_fechadas(issues: List[Dict]) -> Tuple[List[Dict], int]:
+def _aplicar_filtro_fechadas(issues: list[dict]) -> tuple[list[dict], int]:
     exclude_days = config.closed_exclude_days() if config else 60
     if config and config.INITIAL_LOAD:
-        print("OK - Carga inicial: filtro de issues fechadas DESATIVADO (todas incluidas)")
+        log.info("OK - Carga inicial: filtro de issues fechadas DESATIVADO (todas incluidas)")
     filtered, excluidas = filtrar_issues_fechadas_antigas(issues, days=exclude_days)
     if excluidas:
-        print(
+        log.info(
             f"OK - {excluidas} issues fechadas ha mais de {exclude_days} dias "
             f"excluidas do JSON ({len(filtered)} restantes)"
         )
     elif exclude_days <= 0:
-        print(f"OK - JSON com todas as {len(filtered)} issues (sem filtro de fechadas)")
+        log.info(f"OK - JSON com todas as {len(filtered)} issues (sem filtro de fechadas)")
     return filtered, excluidas
 
 
 def _salvar_issues(
     destino: Path,
-    issues: List[Dict],
+    issues: list[dict],
     *,
     mode: str,
-    stats: Optional[Dict[str, int]] = None,
+    stats: dict[str, int] | None = None,
 ) -> None:
     destino.parent.mkdir(parents=True, exist_ok=True)
     with open(destino, "w", encoding="utf-8") as handle:
@@ -328,37 +330,37 @@ def _salvar_issues(
     with open(state_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
 
-    print(f"OK - Arquivo salvo: {destino}")
-    print(f"OK - Estado de sync: {state_path}")
-    print(f"OK - Atualizado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    log.info(f"OK - Arquivo salvo: {destino}")
+    log.info(f"OK - Estado de sync: {state_path}")
+    log.info(f"OK - Atualizado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 
 def _ensure_tokens(destino: Path) -> bool:
     configured = _tokens_configurados()
     if configured:
-        print(f"OK - Tokens configurados para: {', '.join(configured)}")
+        log.info(f"OK - Tokens configurados para: {', '.join(configured)}")
         return True
 
-    print("AVISO: Nenhum token GitLab definido.")
-    print("        Global:  setx GITLAB_TOKEN \"<token>\"")
-    print("        Por repo: setx GITLAB_TOKEN_CONTRATOS_V2 \"<token>\"")
-    print("                  setx GITLAB_TOKEN_CONTRATOS \"<token>\"")
-    print("        Continuando com gitlab_issues_raw.json existente.")
+    log.warning("AVISO: Nenhum token GitLab definido.")
+    log.warning("        Global:  setx GITLAB_TOKEN \"<token>\"")
+    log.warning("        Por repo: setx GITLAB_TOKEN_CONTRATOS_V2 \"<token>\"")
+    log.warning("                  setx GITLAB_TOKEN_CONTRATOS \"<token>\"")
+    log.warning("        Continuando com gitlab_issues_raw.json existente.")
     validar_json_local(destino)
     return False
 
 
 def atualizar_issues(
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     *,
     dry_run: bool = False,
 ) -> bool:
     """Carga completa: substitui gitlab_issues_raw.json a partir da API GitLab."""
     destino = _output_path(output_file)
 
-    print("\n" + "=" * 70)
-    print("ATUALIZADOR DE ISSUES - GitLab [MODO COMPLETO]")
-    print("=" * 70)
+    log.info("\n" + "=" * 70)
+    log.info("ATUALIZADOR DE ISSUES - GitLab [MODO COMPLETO]")
+    log.info("=" * 70)
 
     if not _ensure_tokens(destino):
         return False
@@ -366,27 +368,27 @@ def atualizar_issues(
     try:
         issues = buscar_issues_gitlab()
     except ImportError:
-        print("Erro: requests nao instalado. Execute: pip install requests")
+        log.error("Erro: requests nao instalado. Execute: pip install requests")
         validar_json_local(destino)
         return False
     except Exception as exc:
-        print(f"Erro ao conectar ao GitLab: {exc}")
+        log.error(f"Erro ao conectar ao GitLab: {exc}")
         validar_json_local(destino)
         return False
 
-    by_repo: Dict[str, int] = {}
+    by_repo: dict[str, int] = {}
     for issue in issues:
         repo = issue.get("gitlab_repo", "?")
         by_repo[repo] = by_repo.get(repo, 0) + 1
 
-    print(f"OK - {len(issues)} issues extraidas do GitLab (usando IID + repositorio)")
+    log.info(f"OK - {len(issues)} issues extraidas do GitLab (usando IID + repositorio)")
     for repo, count in sorted(by_repo.items()):
-        print(f"     • {repo}: {count}")
+        log.info(f"     • {repo}: {count}")
 
     issues, _ = _aplicar_filtro_fechadas(issues)
 
     if dry_run:
-        print(f"OK - Dry-run: {len(issues)} issues seriam gravadas (modo completo)")
+        log.info(f"OK - Dry-run: {len(issues)} issues seriam gravadas (modo completo)")
         return True
 
     _salvar_issues(destino, issues, mode="full", stats={"fetched": len(issues)})
@@ -394,22 +396,22 @@ def atualizar_issues(
 
 
 def atualizar_issues_incremental(
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     *,
-    since: Optional[str] = None,
+    since: str | None = None,
     dry_run: bool = False,
 ) -> bool:
     """Sync incremental: novas issues + alteracoes desde a ultima sync (merge local)."""
     destino = _output_path(output_file)
     state_path = _sync_state_path(destino)
 
-    print("\n" + "=" * 70)
-    print("ATUALIZADOR DE ISSUES - GitLab [MODO INCREMENTAL]")
-    print("=" * 70)
+    log.info("\n" + "=" * 70)
+    log.info("ATUALIZADOR DE ISSUES - GitLab [MODO INCREMENTAL]")
+    log.info("=" * 70)
 
     if not destino.exists():
-        print(f"ERRO: JSON local nao encontrado: {destino}")
-        print("       Rode primeiro: python atualizar_gitlab_issues.py --full")
+        log.error(f"ERRO: JSON local nao encontrado: {destino}")
+        log.info("       Rode primeiro: python atualizar_gitlab_issues.py --full")
         return False
 
     if not _ensure_tokens(destino):
@@ -417,38 +419,38 @@ def atualizar_issues_incremental(
 
     local_issues = load_issues_list(destino)
     indexed = index_issues_by_key(local_issues)
-    print(f"OK - Issues locais carregadas: {len(indexed)}")
+    log.info(f"OK - Issues locais carregadas: {len(indexed)}")
 
     try:
         watermark = compute_sync_watermark(indexed, state_path, since_override=since)
     except ValueError as exc:
-        print(f"ERRO: {exc}")
+        log.error(f"ERRO: {exc}")
         return False
 
-    print(f"OK - Buscando alteracoes desde: {format_gitlab_datetime(watermark)}")
+    log.info(f"OK - Buscando alteracoes desde: {format_gitlab_datetime(watermark)}")
 
     try:
         fetched = buscar_issues_gitlab(updated_after=watermark)
     except ImportError:
-        print("Erro: requests nao instalado. Execute: pip install requests")
+        log.error("Erro: requests nao instalado. Execute: pip install requests")
         return False
     except Exception as exc:
-        print(f"Erro ao conectar ao GitLab: {exc}")
+        log.error(f"Erro ao conectar ao GitLab: {exc}")
         return False
 
     added, updated = merge_issues_into_index(indexed, fetched)
     unchanged = len(indexed) - added - updated
     merged = list(indexed.values())
 
-    print(f"OK - API retornou {len(fetched)} issues")
-    print(f"OK - Novas: {added} | Atualizadas: {updated} | Sem alteracao: {unchanged}")
+    log.info(f"OK - API retornou {len(fetched)} issues")
+    log.info(f"OK - Novas: {added} | Atualizadas: {updated} | Sem alteracao: {unchanged}")
 
     merged, removed_old_closed = _aplicar_filtro_fechadas(merged)
     if removed_old_closed:
-        print(f"OK - {removed_old_closed} issues removidas do JSON por filtro de fechadas")
+        log.info(f"OK - {removed_old_closed} issues removidas do JSON por filtro de fechadas")
 
     if dry_run:
-        print(
+        log.info(
             f"OK - Dry-run: JSON final teria {len(merged)} issues "
             f"(+{added} novas, ~{updated} atualizadas)"
         )
@@ -468,22 +470,22 @@ def atualizar_issues_incremental(
     return True
 
 
-def validar_json_local(json_path: Optional[Path] = None) -> None:
+def validar_json_local(json_path: Path | None = None) -> None:
     """Emite aviso se o JSON local parecer dados de teste."""
     path = json_path or _output_path()
     if not path.exists():
         return
     issues = load_issues_list(path)
     if json_parece_sintetico(issues):
-        print("\n" + "!" * 70)
-        print("AVISO: gitlab_issues_raw.json parece conter DADOS DE TESTE,")
-        print("       nao issues reais do GitLab!")
-        print("       Defina GITLAB_TOKEN (ou tokens por repo) e rode:")
-        print("       python atualizar_gitlab_issues.py --full")
-        print("!" * 70 + "\n")
+        log.info("\n" + "!" * 70)
+        log.warning("AVISO: gitlab_issues_raw.json parece conter DADOS DE TESTE,")
+        log.info("       nao issues reais do GitLab!")
+        log.info("       Defina GITLAB_TOKEN (ou tokens por repo) e rode:")
+        log.info("       python atualizar_gitlab_issues.py --full")
+        log.warning("!" * 70 + "\n")
         amostra = next((i for i in issues if i.get("id") == "1289"), None)
         if amostra:
-            print(f"   Exemplo #1289 no JSON local: {amostra.get('title', '')[:80]}")
+            log.info(f"   Exemplo #1289 no JSON local: {amostra.get('title', '')[:80]}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -531,7 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     destino = _output_path(args.output)
@@ -547,7 +549,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             dry_run=args.dry_run,
         )
     else:
-        print("JSON local ausente — iniciando carga completa (--full)...")
+        log.info("JSON local ausente — iniciando carga completa (--full)...")
         success = atualizar_issues(args.output, dry_run=args.dry_run)
 
     return 0 if success else 1

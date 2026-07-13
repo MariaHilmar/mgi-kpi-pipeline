@@ -9,15 +9,14 @@ caminhos e credenciais espalhados/hardcoded pelo codigo.
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
 # ---------------------------------------------------------------------------
 # Helpers de parsing (env vars)
 # ---------------------------------------------------------------------------
 
-def _parse_path_repo_pairs(raw: str) -> List[Tuple[str, str]]:
+def _parse_path_repo_pairs(raw: str) -> list[tuple[str, str]]:
     """Parse MGI_REPOS: path=repo_slug;path2=repo_slug2"""
-    pairs: List[Tuple[str, str]] = []
+    pairs: list[tuple[str, str]] = []
     for chunk in raw.split(";"):
         chunk = chunk.strip()
         if not chunk or "=" not in chunk:
@@ -29,9 +28,9 @@ def _parse_path_repo_pairs(raw: str) -> List[Tuple[str, str]]:
     return pairs
 
 
-def _parse_repo_path_map(raw: str) -> Dict[str, str]:
+def _parse_repo_path_map(raw: str) -> dict[str, str]:
     """Parse MGI_WSL_REPO_PATHS: repo_slug=/wsl/path;repo_slug2=/wsl/path2"""
-    mapping: Dict[str, str] = {}
+    mapping: dict[str, str] = {}
     for chunk in raw.split(";"):
         chunk = chunk.strip()
         if not chunk or "=" not in chunk:
@@ -62,15 +61,15 @@ GIT_DATA_JSON: Path = Path(
 # ---------------------------------------------------------------------------
 # Caminhos locais dos clones Git (Windows UNC, WSL mount, etc.).
 # Formato: path=repo_slug;path2=repo_slug2  (variavel MGI_REPOS)
-REPOS: List[Tuple[str, str]] = _parse_path_repo_pairs(os.environ.get("MGI_REPOS", ""))
+REPOS: list[tuple[str, str]] = _parse_path_repo_pairs(os.environ.get("MGI_REPOS", ""))
 
 # Caminhos dentro do WSL usados por git log/show nos detectores Git.
 # Formato: repo_slug=/wsl/path;repo_slug2=/wsl/path2  (variavel MGI_WSL_REPO_PATHS)
-_DEFAULT_WSL_REPO_PATHS: Dict[str, str] = {
+_DEFAULT_WSL_REPO_PATHS: dict[str, str] = {
     "contratos_v2": "/root/MGI/contratos_v2",
     "contratos": "/root/MGI/contratos",
 }
-WSL_REPO_PATHS: Dict[str, str] = _parse_repo_path_map(
+WSL_REPO_PATHS: dict[str, str] = _parse_repo_path_map(
     os.environ.get("MGI_WSL_REPO_PATHS", "")
 ) or dict(_DEFAULT_WSL_REPO_PATHS)
 SINCE_DAYS: int = int(os.environ.get("MGI_SINCE_DAYS", "30"))
@@ -79,7 +78,7 @@ SINCE_DAYS: int = int(os.environ.get("MGI_SINCE_DAYS", "30"))
 # Processamento de issues
 # ---------------------------------------------------------------------------
 DEFAULT_CUTOFF_DATE: datetime = datetime(2024, 1, 1)
-ALLOWED_MODULES: Set[str] = {"Fiscalização", "Fornecedor"}
+ALLOWED_MODULES: set[str] = {"Fiscalização", "Fornecedor"}
 # True = inclui todas as issues (qualquer modulo no titulo); False = so ALLOWED_MODULES
 ALL_MODULES: bool = os.environ.get("MGI_ALL_MODULES", "1").lower() not in (
     "0", "false", "no",
@@ -106,6 +105,26 @@ LOG_RETENTION_DAYS: int = int(os.environ.get("MGI_LOG_RETENTION_DAYS", "5"))
 REFRESH_MODE: str = os.environ.get("MGI_REFRESH_MODE", "normal").strip().lower()
 
 
+def apply_pipeline_runtime_flags(
+    *,
+    all_modules: bool = False,
+    initial_load: bool = False,
+    full_refresh: bool = False,
+) -> None:
+    """Aplica flags de execucao via env vars e atributos do modulo config."""
+    global ALL_MODULES, INITIAL_LOAD, REFRESH_MODE
+
+    if initial_load:
+        os.environ["MGI_INITIAL_LOAD"] = "1"
+        INITIAL_LOAD = True
+    if all_modules:
+        os.environ["MGI_ALL_MODULES"] = "1"
+        ALL_MODULES = True
+    if full_refresh:
+        os.environ["MGI_REFRESH_MODE"] = "full"
+        REFRESH_MODE = "full"
+
+
 def is_full_refresh() -> bool:
     """True quando a execucao deve reprocessar todos os metadados calculados."""
     return REFRESH_MODE in ("full", "completo", "complete")
@@ -126,7 +145,7 @@ GITLAB_TOKEN_CONTRATOS_V2: str = os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", "")
 GITLAB_TOKEN_CONTRATOS: str = os.environ.get("GITLAB_TOKEN_CONTRATOS", "")
 GITLAB_PROJECT_ID: str = os.environ.get("GITLAB_PROJECT_ID", "comprasnet%2Fcontratos_v2")
 # (project_id URL-encoded, nome curto do repo)
-GITLAB_PROJECTS: List[Tuple[str, str]] = [
+GITLAB_PROJECTS: list[tuple[str, str]] = [
     ("comprasnet%2Fcontratos_v2", "contratos_v2"),
     ("comprasnet%2Fcontratos", "contratos"),
 ]
@@ -145,9 +164,9 @@ def gitlab_token_for_repo(repo_name: str) -> str:
     return GITLAB_TOKEN
 
 
-def gitlab_tokens_configurados() -> List[str]:
+def gitlab_tokens_configurados() -> list[str]:
     """Nomes dos repositorios com token disponivel (especifico ou global)."""
-    configured: List[str] = []
+    configured: list[str] = []
     for _, repo_name in GITLAB_PROJECTS:
         if gitlab_token_for_repo(repo_name):
             configured.append(repo_name)

@@ -16,12 +16,15 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
+from logging_utils import get_logger
 from sync_supabase import _load_dotenv
+
+log = get_logger(__name__)
 
 try:
     import config
@@ -31,7 +34,7 @@ except ImportError:
 GITLAB_GROUP = "comprasnet"
 BOT_USERNAME_MARKERS = ("_bot", "bot_")
 BOT_NAME_MARKERS = ("_TOKEN", "API_TOKEN", "Security Policy Bot", "Duo Developer")
-GITLAB_PROJECTS: List[Tuple[str, str]] = (
+GITLAB_PROJECTS: list[tuple[str, str]] = (
     list(config.GITLAB_PROJECTS)
     if config and getattr(config, "GITLAB_PROJECTS", None)
     else [
@@ -55,8 +58,8 @@ def _gitlab_base_url() -> str:
     return (config.GITLAB_URL if config else os.environ.get("GITLAB_URL", "https://gitlab.com")).rstrip("/")
 
 
-def _fetch_paginated(url: str, headers: Dict[str, str], params: Optional[Dict[str, Any]] = None) -> List[Dict]:
-    items: List[Dict] = []
+def _fetch_paginated(url: str, headers: dict[str, str], params: dict[str, Any] | None = None) -> list[dict]:
+    items: list[dict] = []
     page = 1
     while True:
         query = {"per_page": 100, "page": page}
@@ -75,7 +78,7 @@ def _fetch_paginated(url: str, headers: Dict[str, str], params: Optional[Dict[st
     return items
 
 
-def _is_bot(member: Dict[str, Any]) -> bool:
+def _is_bot(member: dict[str, Any]) -> bool:
     username = (member.get("username") or "").lower()
     name = member.get("name") or ""
     if any(marker in username for marker in BOT_USERNAME_MARKERS):
@@ -87,22 +90,22 @@ def _is_bot(member: Dict[str, Any]) -> bool:
     return False
 
 
-def _fetch_group_members(group_id: str, token: str) -> List[Dict[str, Any]]:
+def _fetch_group_members(group_id: str, token: str) -> list[dict[str, Any]]:
     base = _gitlab_base_url()
     headers = {"PRIVATE-TOKEN": token}
     url = f"{base}/api/v4/groups/{group_id}/members/all"
     try:
         return _fetch_paginated(url, headers)
     except requests.HTTPError as exc:
-        print(f"AVISO - membros do grupo {group_id}: {exc}")
+        log.warning(f"AVISO - membros do grupo {group_id}: {exc}")
         return []
 
 
-def _collect_commit_emails(project_id: str, token: str, max_pages: int = 5) -> Dict[str, str]:
+def _collect_commit_emails(project_id: str, token: str, max_pages: int = 5) -> dict[str, str]:
     """Mapeia author_name -> author_email a partir de commits recentes."""
     base = _gitlab_base_url()
     headers = {"PRIVATE-TOKEN": token}
-    mapping: Dict[str, str] = {}
+    mapping: dict[str, str] = {}
     page = 1
     while page <= max_pages:
         response = requests.get(
@@ -131,12 +134,12 @@ def _collect_commit_emails(project_id: str, token: str, max_pages: int = 5) -> D
 def _collect_author_commit_emails(
     project_id: str,
     token: str,
-    usernames: List[str],
-) -> Dict[str, str]:
+    usernames: list[str],
+) -> dict[str, str]:
     """Busca e-mail de commits filtrados por autor (username GitLab)."""
     base = _gitlab_base_url()
     headers = {"PRIVATE-TOKEN": token}
-    mapping: Dict[str, str] = {}
+    mapping: dict[str, str] = {}
     for username in usernames:
         if not username:
             continue
@@ -157,8 +160,8 @@ def _collect_author_commit_emails(
 
 
 def _merge_email(
-    user: Dict[str, Any],
-    commit_emails: Dict[str, str],
+    user: dict[str, Any],
+    commit_emails: dict[str, str],
 ) -> str:
     if user.get("email"):
         return user["email"]
@@ -174,7 +177,7 @@ def _merge_email(
     return ""
 
 
-def _member_is_active(member: Dict[str, Any]) -> bool:
+def _member_is_active(member: dict[str, Any]) -> bool:
     if member.get("state") != "active":
         return False
     expires_at = member.get("expires_at")
@@ -183,7 +186,7 @@ def _member_is_active(member: Dict[str, Any]) -> bool:
     return True
 
 
-def _fetch_project_members(project_id: str, token: str) -> List[Dict[str, Any]]:
+def _fetch_project_members(project_id: str, token: str) -> list[dict[str, Any]]:
     base = _gitlab_base_url()
     headers = {"PRIVATE-TOKEN": token}
     url = f"{base}/api/v4/projects/{project_id}/members/all"
@@ -193,11 +196,11 @@ def _fetch_project_members(project_id: str, token: str) -> List[Dict[str, Any]]:
 def _fetch_user_details(
     user_id: int,
     token: str,
-    fallback: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     base = _gitlab_base_url()
     headers = {"PRIVATE-TOKEN": token}
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(3):
         try:
@@ -232,11 +235,11 @@ def _fetch_user_details(
     raise RuntimeError(f"Nao foi possivel obter detalhes do user {user_id}")
 
 
-def collect_active_gitlab_users() -> Tuple[List[Dict[str, Any]], List[str]]:
+def collect_active_gitlab_users() -> tuple[list[dict[str, Any]], list[str]]:
     """Retorna usuarios unicos (por id) e avisos."""
-    warnings: List[str] = []
-    by_id: Dict[int, Dict[str, Any]] = {}
-    commit_emails: Dict[str, str] = {}
+    warnings: list[str] = []
+    by_id: dict[int, dict[str, Any]] = {}
+    commit_emails: dict[str, str] = {}
     token_for_group = os.environ.get("GITLAB_TOKEN", "")
     if not token_for_group:
         for repo_name in ("contratos_v2", "contratos"):
@@ -244,7 +247,7 @@ def collect_active_gitlab_users() -> Tuple[List[Dict[str, Any]], List[str]]:
 
     if token_for_group:
         group_members = _fetch_group_members(GITLAB_GROUP, token_for_group)
-        print(f"OK - grupo {GITLAB_GROUP}: {len(group_members)} membros (referencia)")
+        log.info(f"OK - grupo {GITLAB_GROUP}: {len(group_members)} membros (referencia)")
 
     for project_id, repo_name in GITLAB_PROJECTS:
         token = _gitlab_token_for_repo(repo_name)
@@ -255,7 +258,7 @@ def collect_active_gitlab_users() -> Tuple[List[Dict[str, Any]], List[str]]:
         commit_emails.update(_collect_commit_emails(project_id, token, max_pages=30))
         members = _fetch_project_members(project_id, token)
         active_members = [m for m in members if _member_is_active(m) and not _is_bot(m)]
-        print(f"OK - {repo_name}: {len(active_members)} membros ativos humanos (de {len(members)} total)")
+        log.info(f"OK - {repo_name}: {len(active_members)} membros ativos humanos (de {len(members)} total)")
 
         for member in active_members:
             uid = int(member["id"])
@@ -292,11 +295,11 @@ def collect_active_gitlab_users() -> Tuple[List[Dict[str, Any]], List[str]]:
 
     users = sorted(by_id.values(), key=lambda u: (u.get("name") or u.get("username") or "").lower())
     if commit_emails:
-        print(f"OK - {len(commit_emails)} e-mail(s) inferido(s) de commits Git")
+        log.info(f"OK - {len(commit_emails)} e-mail(s) inferido(s) de commits Git")
     return users, warnings
 
 
-def _supabase_config() -> Tuple[str, str]:
+def _supabase_config() -> tuple[str, str]:
     url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     if not url or not key:
@@ -306,12 +309,12 @@ def _supabase_config() -> Tuple[str, str]:
     return url, key
 
 
-def _list_existing_emails(supabase_url: str, service_key: str) -> Set[str]:
+def _list_existing_emails(supabase_url: str, service_key: str) -> set[str]:
     headers = {
         "Authorization": f"Bearer {service_key}",
         "apikey": service_key,
     }
-    emails: Set[str] = set()
+    emails: set[str] = set()
     page = 1
     per_page = 200
     while True:
@@ -341,9 +344,9 @@ def _upsert_gitlab_user(
     service_key: str,
     *,
     gitlab_id: int,
-    username: Optional[str],
-    name: Optional[str],
-    email: Optional[str],
+    username: str | None,
+    name: str | None,
+    email: str | None,
 ) -> None:
     headers = {
         "Authorization": f"Bearer {service_key}",
@@ -373,16 +376,16 @@ def _create_supabase_user(
     *,
     email: str,
     password: str,
-    full_name: Optional[str],
-    autor_issues: Optional[str],
-    gitlab_user_id: Optional[int],
+    full_name: str | None,
+    autor_issues: str | None,
+    gitlab_user_id: int | None,
 ) -> None:
     headers = {
         "Authorization": f"Bearer {service_key}",
         "apikey": service_key,
         "Content-Type": "application/json",
     }
-    body: Dict[str, Any] = {
+    body: dict[str, Any] = {
         "email": email,
         "password": password,
         "email_confirm": True,
@@ -448,35 +451,39 @@ def main() -> int:
 
     users, warnings = collect_active_gitlab_users()
     for warning in warnings:
-        print(f"AVISO - {warning}")
+        log.warning(f"AVISO - {warning}")
 
     if not users:
-        print("Nenhum membro ativo encontrado (ou tokens ausentes).")
+        log.warning("Nenhum membro ativo encontrado (ou tokens ausentes).")
         return 1
 
-    print("\nUsuarios ativos nos projetos GitLab:\n")
-    print(f"{'Nome':<35} {'E-mail':<40} {'Repos'}")
-    print("-" * 90)
+    log.info("\nUsuarios ativos nos projetos GitLab:\n")
+    log.info(f"{'Nome':<35} {'E-mail':<40} {'Repos'}")
+    log.info("-" * 90)
     for user in users:
         repos = ", ".join(sorted(user["repos"]))
         email = user["email"] or "(sem e-mail)"
         name = (user["name"] or user["username"] or "?")[:34]
-        print(f"{name:<35} {email:<40} {repos}")
+        log.info(f"{name:<35} {email:<40} {repos}")
 
     without_email = [u for u in users if not u["email"]]
     if without_email:
-        print(f"\nAVISO - {len(without_email)} usuario(s) sem e-mail visivel na API GitLab:")
+        log.warning(
+            f"\nAVISO - {len(without_email)} usuario(s) sem e-mail visivel na API GitLab:"
+        )
         for user in without_email:
-            print(f"  - {user['name']} (@{user['username']}, id={user['gitlab_id']})")
+            log.info(f"  - {user['name']} (@{user['username']}, id={user['gitlab_id']})")
 
     provisionable = [u for u in users if u["email"]]
     if args.dry_run:
-        print(f"\nDRY-RUN: {len(provisionable)} usuario(s) seriam provisionados.")
+        log.info(
+            f"\nDRY-RUN: {len(provisionable)} usuario(s) seriam provisionados."
+        )
         return 0
 
     password = _resolve_provision_password(args.password)
     if not password:
-        print(
+        log.info(
             "ERRO: informe --password ou defina MGI_PROVISION_PASSWORD no .env "
             "para provisionar contas."
         )
@@ -492,7 +499,7 @@ def main() -> int:
     for user in provisionable:
         email = user["email"]
         if email in existing:
-            print(f"PULADO - ja existe: {email}")
+            log.info(f"PULADO - ja existe: {email}")
             skipped += 1
             continue
         try:
@@ -514,14 +521,16 @@ def main() -> int:
                 autor_issues=user.get("name"),
                 gitlab_user_id=gitlab_id,
             )
-            print(f"CRIADO - {email} ({user.get('name')})")
+            log.info(f"CRIADO - {email} ({user.get('name')})")
             existing.add(email)
             created += 1
         except Exception as exc:
-            print(f"ERRO - {email}: {exc}")
+            log.error(f"ERRO - {email}: {exc}")
             failed += 1
 
-    print(f"\nResumo: {created} criado(s), {skipped} ja existente(s), {failed} erro(s).")
+    log.info(
+        f"\nResumo: {created} criado(s), {skipped} ja existente(s), {failed} erro(s)."
+    )
     return 0 if failed == 0 else 1
 
 
