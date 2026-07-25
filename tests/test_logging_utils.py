@@ -1,4 +1,5 @@
 """Testes do logging central (logging_utils)."""
+
 from __future__ import annotations
 
 import logging

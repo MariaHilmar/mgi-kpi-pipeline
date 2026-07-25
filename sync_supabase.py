@@ -23,11 +23,17 @@ from typing import Any
 
 import requests
 
+from gitlab_epics import carregar_epicos, coletar_e_salvar_epicos, epics_json_path
 from gitlab_identities import (
     build_participant_rows,
     collect_gitlab_users_from_records,
     issue_keys_from_records,
     prepare_issue_rows_for_upsert,
+)
+from gitlab_labels import (
+    carregar_tipo_labels,
+    coletar_e_salvar_tipo_labels,
+    labels_json_path,
 )
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 from logging_utils import get_logger
@@ -39,6 +45,7 @@ except ImportError:
     _config = None
 
 log = get_logger(__name__)
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -120,9 +127,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase gitlab_users ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase gitlab_users ({response.status_code}): {detail}")
         return len(rows)
 
     def replace_issue_participants(self, issue_keys: list[str], rows: list[dict[str, Any]]) -> int:
@@ -173,9 +178,7 @@ class SupabaseSync:
             )
             if not response.ok:
                 detail = response.text[:500]
-                raise RuntimeError(
-                    f"Erro Supabase issues ({response.status_code}): {detail}"
-                )
+                raise RuntimeError(f"Erro Supabase issues ({response.status_code}): {detail}")
             total += len(chunk)
             log.info(f"OK - Enviadas {total}/{len(rows)} issues")
         return total
@@ -191,10 +194,77 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase releases ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase releases ({response.status_code}): {detail}")
         return len(rows)
+
+    def upsert_gitlab_epics(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        synced_at = _utc_now()
+        payload = []
+        for row in rows:
+            title = (row.get("title") or "").strip()
+            if not title:
+                continue
+            payload.append(
+                {
+                    "gitlab_group_path": row.get("gitlab_group_path") or "comprasnet",
+                    "gitlab_epic_id": row["gitlab_epic_id"],
+                    "gitlab_epic_iid": row["gitlab_epic_iid"],
+                    "title": title,
+                    "state": row.get("state") or "",
+                    "web_url": row.get("web_url") or "",
+                    "parent_iid": row.get("parent_iid"),
+                    "synced_at": synced_at,
+                    "updated_at": synced_at,
+                }
+            )
+        if not payload:
+            return 0
+        response = requests.post(
+            f"{self.base}/gitlab_epics?on_conflict=gitlab_group_path,gitlab_epic_id",
+            headers=self.headers,
+            json=payload,
+            timeout=120,
+        )
+        if not response.ok:
+            detail = response.text[:500]
+            raise RuntimeError(f"Erro Supabase gitlab_epics ({response.status_code}): {detail}")
+        return len(payload)
+
+    def upsert_gitlab_tipo_labels(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        synced_at = _utc_now()
+        payload = []
+        for row in rows:
+            tipo = (row.get("tipo") or "").strip()
+            if not tipo:
+                continue
+            payload.append(
+                {
+                    "tipo": tipo,
+                    "label": (row.get("label") or "").strip() or f"tipo::{tipo}",
+                    "color": row.get("color") or "",
+                    "description": row.get("description") or "",
+                    "synced_at": synced_at,
+                    "updated_at": synced_at,
+                }
+            )
+        if not payload:
+            return 0
+        response = requests.post(
+            f"{self.base}/gitlab_tipo_labels?on_conflict=tipo",
+            headers=self.headers,
+            json=payload,
+            timeout=120,
+        )
+        if not response.ok:
+            detail = response.text[:500]
+            raise RuntimeError(
+                f"Erro Supabase gitlab_tipo_labels ({response.status_code}): {detail}"
+            )
+        return len(payload)
 
     def start_sync_run(self) -> str:
         response = requests.post(
@@ -205,9 +275,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase sync_runs ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase sync_runs ({response.status_code}): {detail}")
         return response.json()[0]["id"]
 
     def finish_sync_run(
@@ -247,7 +315,9 @@ def _notify_dashboard(url: str, secret: str) -> None:
         if response.ok:
             log.info(f"OK - Cache do dashboard invalidado ({endpoint})")
         else:
-            log.warning(f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}")
+            log.warning(
+                f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}"
+            )
     except Exception as exc:
         log.warning(f"AVISO - Nao foi possivel notificar o dashboard: {exc}")
 
@@ -320,11 +390,39 @@ def _load_dotenv() -> None:
         return
 
 
+def _prepare_epics_for_sync(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Garante catalogo local de epicos (busca se ausente) e devolve linhas."""
+    path = epics_json_path()
+    epics = carregar_epicos(path)
+    if epics:
+        return epics
+    try:
+        return coletar_e_salvar_epicos(issues=issues, dry_run=False)
+    except Exception as exc:
+        log.warning(f"AVISO - nao foi possivel coletar epicos para sync: {exc}")
+        return []
+
+
+def _prepare_tipo_labels_for_sync() -> list[dict[str, Any]]:
+    """Garante catalogo local de labels de tipo (busca se ausente) e devolve linhas."""
+    path = labels_json_path()
+    labels = carregar_tipo_labels(path)
+    if labels:
+        return labels
+    try:
+        return coletar_e_salvar_tipo_labels(dry_run=False)
+    except Exception as exc:
+        log.warning(f"AVISO - nao foi possivel coletar labels de tipo para sync: {exc}")
+        return []
+
+
 def sync_issues_to_supabase(
     issues: list[dict[str, Any]] | None = None,
     *,
     json_path: Path | None = None,
     include_releases: bool = True,
+    include_epics: bool = True,
+    include_tipo_labels: bool = True,
     enable_git: bool = True,
 ) -> int:
     """Processa issues em memoria e sincroniza com o Supabase (sem Excel).
@@ -378,6 +476,22 @@ def sync_issues_to_supabase(
             release_rows = _dedupe_releases(_load_releases(_git_data_path()))
             release_count = client.upsert_releases(release_rows)
             log.info(f"OK - {release_count} releases sincronizadas")
+        if include_epics:
+            epic_rows = _prepare_epics_for_sync(issues)
+            try:
+                epic_count = client.upsert_gitlab_epics(epic_rows)
+                log.info(f"OK - {epic_count} epicos sincronizados")
+            except Exception as exc:
+                # Migration ainda nao aplicada: nao bloqueia o sync de issues.
+                log.warning(f"AVISO - sync de epicos ignorado ({exc})")
+        if include_tipo_labels:
+            tipo_rows = _prepare_tipo_labels_for_sync()
+            try:
+                tipo_count = client.upsert_gitlab_tipo_labels(tipo_rows)
+                log.info(f"OK - {tipo_count} tipos (labels) sincronizados")
+            except Exception as exc:
+                # Migration ainda nao aplicada: nao bloqueia o sync de issues.
+                log.warning(f"AVISO - sync de tipos (labels) ignorado ({exc})")
 
         if run_id:
             client.finish_sync_run(
@@ -394,7 +508,9 @@ def sync_issues_to_supabase(
         if dashboard_url and revalidate_secret:
             _notify_dashboard(dashboard_url, revalidate_secret)
         else:
-            log.warning("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
+            log.warning(
+                "AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado."
+            )
 
         return upserted
     except Exception as exc:
@@ -414,6 +530,12 @@ def main() -> int:
     parser.add_argument("--json", type=Path, default=None, help="Caminho do gitlab_issues_raw.json")
     parser.add_argument("--sem-releases", action="store_true")
     parser.add_argument(
+        "--sem-epicos", action="store_true", help="Nao sincroniza catalogo de epicos"
+    )
+    parser.add_argument(
+        "--sem-tipos", action="store_true", help="Nao sincroniza catalogo de labels de tipo"
+    )
+    parser.add_argument(
         "--sem-git",
         action="store_true",
         help="Desativa detectores Git (area/tipo/dev) — usa apenas titulo/labels",
@@ -423,6 +545,8 @@ def main() -> int:
     sync_issues_to_supabase(
         json_path=args.json,
         include_releases=not args.sem_releases,
+        include_epics=not args.sem_epicos,
+        include_tipo_labels=not args.sem_tipos,
         enable_git=not args.sem_git,
     )
     return 0

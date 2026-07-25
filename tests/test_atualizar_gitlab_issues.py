@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from atualizar_gitlab_issues import (
+    _mapear_issue_api,
     compute_sync_watermark,
     format_gitlab_datetime,
     index_issues_by_key,
@@ -20,6 +21,50 @@ from atualizar_gitlab_issues import (
 def test_format_gitlab_datetime_naive_utc():
     dt = datetime(2026, 6, 26, 14, 30, 0)
     assert format_gitlab_datetime(dt) == "2026-06-26T14:30:00Z"
+
+
+def test_mapear_issue_api_inclui_epic():
+    raw = {
+        "id": 193599560,
+        "iid": 1350,
+        "title": "[PNCP] teste",
+        "description": "",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-02T00:00:00Z",
+        "closed_at": None,
+        "state": "opened",
+        "author": {"id": 1, "username": "a", "name": "Ana"},
+        "assignees": [],
+        "milestone": None,
+        "labels": [],
+        "merge_requests_count": 0,
+        "epic_iid": 59,
+        "epic": {"id": 10, "iid": 59, "title": "Meu Epico", "url": "/epics/59"},
+    }
+    mapped = _mapear_issue_api(raw, "contratos_v2")
+    assert mapped["epic"]["iid"] == 59
+    assert mapped["epic"]["title"] == "Meu Epico"
+
+
+def test_mapear_issue_api_sem_epic():
+    raw = {
+        "id": 1,
+        "iid": 2,
+        "title": "x",
+        "description": "",
+        "created_at": "",
+        "updated_at": "",
+        "closed_at": None,
+        "state": "opened",
+        "author": {},
+        "assignees": [],
+        "milestone": None,
+        "labels": [],
+        "merge_requests_count": 0,
+        "epic": None,
+        "epic_iid": None,
+    }
+    assert _mapear_issue_api(raw, "contratos_v2")["epic"] is None
 
 
 def test_load_issues_list_from_array(tmp_path: Path):

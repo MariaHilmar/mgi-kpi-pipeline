@@ -29,7 +29,7 @@ Converte cada issue crua em um **record com as colunas exatas de
 `public.issues`**. `build_issue_records` deduplica por `issue_key` (última
 ocorrência vence). Reaproveita os detectores Git e a taxonomia. Campos manuais
 (`situacao_analise`, `desenvolvedor_futuro`, `observacao_geral`, `chamado`,
-`priorizar`, `epico`) são **omitidos de propósito** para o upsert não
+`priorizar`) são **omitidos de propósito** para o upsert não
 sobrescrever o que foi preenchido à mão no Supabase.
 
 Campos de identidade GitLab (`gitlab_author_id`, `gitlab_assignee_ids`,
@@ -85,10 +85,16 @@ v2", `contratos` → "Contratos v1"), URLs de work item e paths WSL.
 ### `atualizar_gitlab_issues.py`
 Baixa issues via **API REST do GitLab** (`/projects/:id/issues`, paginado) para
 todos os projetos em `config.GITLAB_PROJECTS`. Mapeia a resposta para o formato
-do pipeline — inclui **`author.id`**, **`author.username`** e **`assignees[].id`**
-(além dos nomes) — usa o **IID** do projeto (`#1289`), não o ID global — e
-grava `gitlab_issues_raw.json`. Requer `GITLAB_TOKEN` (global) ou tokens por
-repo. Detecta JSON sintético/de teste.
+do pipeline — inclui **`author.id`**, **`author.username`**, **`assignees[].id`**
+e o objeto **`epic`** (quando a API Premium/Ultimate envia) — usa o **IID** do
+projeto (`#1289`), não o ID global — e grava `gitlab_issues_raw.json`. Também
+aciona `gitlab_epics.coletar_e_salvar_epicos` (catalogo do grupo). Requer
+`GITLAB_TOKEN` (global) ou tokens por repo. Detecta JSON sintético/de teste.
+
+### `gitlab_epics.py`
+Lista epicos do grupo (`GET /groups/:id/epics` → `gitlab_epics_raw.json`),
+enriquece issues filhas quando o vinculo nao veio no list de issues, e expoe
+helpers de mapeamento usados no sync (`public.gitlab_epics`).
 
 ### `coleta_git_contratos.py`
 Classe `GitColeta`: executa `git log` / `git branch` / `git tag` em cada repo

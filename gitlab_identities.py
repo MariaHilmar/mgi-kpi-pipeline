@@ -43,7 +43,9 @@ def gitlab_user_row(
     }
 
 
-def collect_gitlab_users_from_records(records: Iterable[dict[str, Any]], synced_at: str) -> list[dict[str, Any]]:
+def collect_gitlab_users_from_records(
+    records: Iterable[dict[str, Any]], synced_at: str
+) -> list[dict[str, Any]]:
     """Agrega usuarios unicos a partir de metadados embutidos nos registros."""
     users: dict[int, dict[str, Any]] = {}
 
@@ -167,14 +169,18 @@ def enrich_records_with_developer_ids(records: list[dict[str, Any]]) -> None:
 
         record["gitlab_developer_id"] = dev_id
         participants = list(record.get("_participants") or [])
-        if not any(p.get("role") == "developer" and p.get("gitlab_user_id") == dev_id for p in participants):
+        if not any(
+            p.get("role") == "developer" and p.get("gitlab_user_id") == dev_id for p in participants
+        ):
             participants.append(
                 {
                     "role": "developer",
                     "gitlab_user_id": dev_id,
                     "is_primary": True,
                     "source": source or "git_commits",
-                    "display_name": record.get("desenvolvedor") or record.get("dev_autor_dev") or "",
+                    "display_name": record.get("desenvolvedor")
+                    or record.get("dev_autor_dev")
+                    or "",
                 }
             )
         record["_participants"] = participants

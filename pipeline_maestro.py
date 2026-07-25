@@ -33,11 +33,18 @@ except ImportError as e:
 
 
 class PipelineMaestro:
-    def __init__(self, config, data_input=None, all_modules: bool = False, initial_load: bool = False, full_refresh: bool = False):
+    def __init__(
+        self,
+        config,
+        data_input=None,
+        all_modules: bool = False,
+        initial_load: bool = False,
+        full_refresh: bool = False,
+    ):
         self.config = config
-        self.repo_path = Path(config['repo_path'])
-        self.output_dir = Path(config['output_dir'])
-        self.issues_json = Path(config['issues_json_path'])
+        self.repo_path = Path(config["repo_path"])
+        self.output_dir = Path(config["output_dir"])
+        self.issues_json = Path(config["issues_json_path"])
         self.data_input = data_input  # Data do batch script
         self.all_modules = all_modules
         self.initial_load = initial_load
@@ -79,11 +86,11 @@ class PipelineMaestro:
             repos = mgi_config.REPOS
 
             dados_consolidados = {
-                'timestamp': datetime.now().isoformat(),
-                'repositorios': [],
-                'total_commits': 0,
-                'total_branches': 0,
-                'total_releases': 0,
+                "timestamp": datetime.now().isoformat(),
+                "repositorios": [],
+                "total_commits": 0,
+                "total_branches": 0,
+                "total_releases": 0,
             }
 
             for repo_path, repo_name in repos:
@@ -91,20 +98,24 @@ class PipelineMaestro:
                 try:
                     coleta = GitColeta(repo_path, repo_name)
                     if not coleta.validar_repo():
-                        self.logger.warning(f"      AVISO: repositorio inacessivel ({repo_name}) - {repo_path}")
-                        dados_consolidados['repositorios'].append(coleta.data)
+                        self.logger.warning(
+                            f"      AVISO: repositorio inacessivel ({repo_name}) - {repo_path}"
+                        )
+                        dados_consolidados["repositorios"].append(coleta.data)
                         continue
-                    coleta.processar_completo(None, since_days=mgi_config.SINCE_DAYS)  # None = nao exporta individual
-                    dados_consolidados['repositorios'].append(coleta.data)
-                    dados_consolidados['total_commits'] += len(coleta.data['commits'])
-                    dados_consolidados['total_branches'] += len(coleta.data['branches'])
-                    dados_consolidados['total_releases'] += len(coleta.data['releases'])
+                    coleta.processar_completo(
+                        None, since_days=mgi_config.SINCE_DAYS
+                    )  # None = nao exporta individual
+                    dados_consolidados["repositorios"].append(coleta.data)
+                    dados_consolidados["total_commits"] += len(coleta.data["commits"])
+                    dados_consolidados["total_branches"] += len(coleta.data["branches"])
+                    dados_consolidados["total_releases"] += len(coleta.data["releases"])
                     self.logger.info(f"      OK - {repo_name} concluido")
                 except Exception as e:
                     self.logger.error(f"      ERRO ao coletar {repo_name}: {e}")
 
             # Exportar consolidado
-            with open(str(git_output), 'w', encoding='utf-8') as f:
+            with open(str(git_output), "w", encoding="utf-8") as f:
                 json.dump(dados_consolidados, f, indent=2, ensure_ascii=False)
 
             self.logger.info(f"OK - Coleta Git consolidada: {git_output}")
@@ -122,13 +133,13 @@ class PipelineMaestro:
         self.logger.info("\n[ISSUES] ETAPA 2: Carregamento de Issues")
         self.logger.info("=" * 70)
         try:
-            with open(self.issues_json, encoding='utf-8') as f:
+            with open(self.issues_json, encoding="utf-8") as f:
                 issues_data = json.load(f)
 
             if isinstance(issues_data, list):
                 issues = issues_data
-            elif isinstance(issues_data, dict) and 'issues' in issues_data:
-                issues = issues_data['issues']
+            elif isinstance(issues_data, dict) and "issues" in issues_data:
+                issues = issues_data["issues"]
             else:
                 issues = []
 
@@ -169,30 +180,28 @@ class PipelineMaestro:
     def gerar_relatorio_final(self, git_stats, issues_count):
         """Gera relatorio final de execucao"""
         relatorio = {
-            'timestamp': datetime.now().isoformat(),
-            'data_entrada': self.data_input,
-            'status': 'sucesso',
-            'etapas': {
-                'coleta_git': {
-                    'commits': git_stats.get('commits_total', 0),
-                    'branches': git_stats.get('branches_total', 0),
-                    'releases': git_stats.get('releases_total', 0),
+            "timestamp": datetime.now().isoformat(),
+            "data_entrada": self.data_input,
+            "status": "sucesso",
+            "etapas": {
+                "coleta_git": {
+                    "commits": git_stats.get("commits_total", 0),
+                    "branches": git_stats.get("branches_total", 0),
+                    "releases": git_stats.get("releases_total", 0),
                 },
-                'processamento_issues': {
-                    'total': issues_count
+                "processamento_issues": {"total": issues_count},
+                "supabase": {
+                    "issues_sincronizadas": getattr(self, "issues_sincronizadas", 0),
+                    "atualizado": datetime.now().isoformat(),
                 },
-                'supabase': {
-                    'issues_sincronizadas': getattr(self, 'issues_sincronizadas', 0),
-                    'atualizado': datetime.now().isoformat()
-                }
-            }
+            },
         }
 
         logs_dir = self.output_dir / "Logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         relatorio_file = logs_dir / f"relatorio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
-        with open(relatorio_file, 'w', encoding='utf-8') as f:
+        with open(relatorio_file, "w", encoding="utf-8") as f:
             json.dump(relatorio, f, indent=2, ensure_ascii=False)
 
         return relatorio
@@ -210,11 +219,15 @@ class PipelineMaestro:
         if self.initial_load:
             self.logger.info("Modo carga: INICIAL (sem filtro de issues fechadas > 60 dias)")
         if self.full_refresh:
-            self.logger.info("Modo atualizacao: EXECUCAO COMPLETA (reprocessa metadados e enriquecimentos)")
+            self.logger.info(
+                "Modo atualizacao: EXECUCAO COMPLETA (reprocessa metadados e enriquecimentos)"
+            )
 
         removed_logs = limpar_logs_antigos(Path(self.output_dir))
         if removed_logs:
-            self.logger.info(f"OK - {removed_logs} arquivo(s) de log com mais de {mgi_config.LOG_RETENTION_DAYS} dias removidos")
+            self.logger.info(
+                f"OK - {removed_logs} arquivo(s) de log com mais de {mgi_config.LOG_RETENTION_DAYS} dias removidos"
+            )
 
         # Validacao
         if not self.validar_ambiente():
@@ -230,12 +243,12 @@ class PipelineMaestro:
         if git_data_file:
             # Carregar dados Git para estatisticas (totais consolidados na raiz)
             try:
-                with open(git_data_file, encoding='utf-8') as f:
+                with open(git_data_file, encoding="utf-8") as f:
                     git_data = json.load(f)
                 git_stats = {
-                    'commits_total': git_data.get('total_commits', 0),
-                    'branches_total': git_data.get('total_branches', 0),
-                    'releases_total': git_data.get('total_releases', 0),
+                    "commits_total": git_data.get("total_commits", 0),
+                    "branches_total": git_data.get("total_branches", 0),
+                    "releases_total": git_data.get("total_releases", 0),
                 }
             except Exception as e:
                 self.logger.warning(f"Aviso ao carregar stats Git: {e}")
@@ -267,7 +280,9 @@ class PipelineMaestro:
         self.logger.info(f"   Branches: {git_stats.get('branches_total', 0)}")
         self.logger.info(f"   Releases: {git_stats.get('releases_total', 0)}")
         self.logger.info(f"   Issues: {len(issues)}")
-        self.logger.info(f"   Sincronizadas no Supabase: {getattr(self, 'issues_sincronizadas', 0)}")
+        self.logger.info(
+            f"   Sincronizadas no Supabase: {getattr(self, 'issues_sincronizadas', 0)}"
+        )
         self.logger.info(f"\nData/Hora Fim: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         return True
 
@@ -293,18 +308,18 @@ def main():
     # Configuracao padrao (centralizada em config.py / variaveis de ambiente)
     default_repo_path = mgi_config.REPOS[0][0] if mgi_config.REPOS else ""
     pipeline_config = {
-        'repo_path': default_repo_path,
-        'output_dir': str(mgi_config.BASE_DIR),
-        'issues_json_path': str(mgi_config.ISSUES_JSON),
+        "repo_path": default_repo_path,
+        "output_dir": str(mgi_config.BASE_DIR),
+        "issues_json_path": str(mgi_config.ISSUES_JSON),
     }
 
     # Permitir override via argumentos
     if len(argv) > 0:
-        pipeline_config['repo_path'] = argv[0]
+        pipeline_config["repo_path"] = argv[0]
     if len(argv) > 1:
-        pipeline_config['output_dir'] = argv[1]
+        pipeline_config["output_dir"] = argv[1]
     if len(argv) > 2:
-        pipeline_config['issues_json_path'] = argv[2]
+        pipeline_config["issues_json_path"] = argv[2]
 
     # Executar pipeline
     maestro = PipelineMaestro(
@@ -319,5 +334,5 @@ def main():
     sys.exit(0 if success else 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

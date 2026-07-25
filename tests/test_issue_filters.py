@@ -34,16 +34,12 @@ class TestFiltrarIssuesFechadasAntigas:
         assert excluded == 0
 
     def test_exclui_fechadas_antigas(self, sample_issue_closed_old: dict) -> None:
-        kept, excluded = filtrar_issues_fechadas_antigas(
-            [sample_issue_closed_old], days=60
-        )
+        kept, excluded = filtrar_issues_fechadas_antigas([sample_issue_closed_old], days=60)
         assert kept == []
         assert excluded == 1
 
     def test_mantem_fechadas_recentes(self, sample_issue_closed_recent: dict) -> None:
-        kept, excluded = filtrar_issues_fechadas_antigas(
-            [sample_issue_closed_recent], days=60
-        )
+        kept, excluded = filtrar_issues_fechadas_antigas([sample_issue_closed_recent], days=60)
         assert kept == [sample_issue_closed_recent]
         assert excluded == 0
 
@@ -54,9 +50,7 @@ class TestFiltrarIssuesFechadasAntigas:
         assert excluded == 0
 
     def test_days_zero_desativa_filtro(self, sample_issue_closed_old: dict) -> None:
-        kept, excluded = filtrar_issues_fechadas_antigas(
-            [sample_issue_closed_old], days=0
-        )
+        kept, excluded = filtrar_issues_fechadas_antigas([sample_issue_closed_old], days=0)
         assert kept == [sample_issue_closed_old]
         assert excluded == 0
 
