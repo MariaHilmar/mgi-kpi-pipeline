@@ -22,6 +22,7 @@ gitlab_issues_sync_state.json
 gitlab_fiscalizacao_data.json
 gitlab_git_data.json
 *.log
+JSON
 
 # Excel gerado (fica na raiz do workspace ou em templates/)
 *.xlsx
