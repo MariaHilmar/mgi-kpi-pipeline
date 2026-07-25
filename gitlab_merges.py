@@ -137,9 +137,7 @@ def merged_at_for_issue(
         session = requests.Session()
 
     slug = _normalize_repo(repo)
-    data, status = _related_mrs_merged_ats(
-        iid, slug, token=token, session=session, timeout=timeout
-    )
+    data, status = _related_mrs_merged_ats(iid, slug, token=token, session=session, timeout=timeout)
     if status != 404:
         return data
 

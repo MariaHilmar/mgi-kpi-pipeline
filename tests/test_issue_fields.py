@@ -69,10 +69,7 @@ def test_parse_labels():
 
 
 def test_extract_epico_da_api():
-    assert (
-        f.extract_epico({"epic": {"title": "Epico API"}, "labels": []})
-        == "Epico API"
-    )
+    assert f.extract_epico({"epic": {"title": "Epico API"}, "labels": []}) == "Epico API"
 
 
 def test_extract_epico_label_tem_prioridade():

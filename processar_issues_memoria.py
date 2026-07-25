@@ -84,6 +84,7 @@ def reset_git_availability_cache() -> None:
     _WSL_GIT_AVAILABLE = None
     _LOCAL_GIT_AVAILABLE = None
 
+
 try:
     from detectar_area_funcional import AreaDetection, build_detector
 except ImportError:  # pragma: no cover - import defensivo
@@ -226,9 +227,7 @@ def _resolve_dev(issue: dict, dev_enricher) -> dict[str, Any]:
             "dev_tem_branch": info.tem_branch,
             "dev_branch": info.branch,
             "dev_commits": info.commits,
-            "dev_ultimo_commit": info.ultimo_commit.isoformat()
-            if info.ultimo_commit
-            else None,
+            "dev_ultimo_commit": info.ultimo_commit.isoformat() if info.ultimo_commit else None,
             "dev_autor_dev": info.autor_dev,
             "gitlab_mrs": info.mr_gitlab,
             "dev_mergeado": info.mergeado,
@@ -328,9 +327,7 @@ def build_issue_record(
         "updated_at": synced_at,
     }
 
-    record.update(
-        issue_fields.derive_date_fields(created_date, closed_date, estado, today=today)
-    )
+    record.update(issue_fields.derive_date_fields(created_date, closed_date, estado, today=today))
     record.update(_resolve_dev(issue, dev_enricher))
     record.update(issue_fields.quality_fields(title, modulo_raw, area, area_conf))
     record["faixa_idade"] = issue_fields.faixa_idade(

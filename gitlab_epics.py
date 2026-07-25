@@ -66,7 +66,9 @@ def mapear_epic_api(epic_obj: dict | None, epic_iid_fallback: Any = None) -> dic
             return None
         return {
             "id": None,
-            "iid": int(epic_iid_fallback) if str(epic_iid_fallback).isdigit() else epic_iid_fallback,
+            "iid": int(epic_iid_fallback)
+            if str(epic_iid_fallback).isdigit()
+            else epic_iid_fallback,
             "title": "",
             "url": "",
         }

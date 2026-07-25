@@ -55,10 +55,14 @@ def _gitlab_token_for_repo(gitlab_repo: str) -> str:
 
 
 def _gitlab_base_url() -> str:
-    return (config.GITLAB_URL if config else os.environ.get("GITLAB_URL", "https://gitlab.com")).rstrip("/")
+    return (
+        config.GITLAB_URL if config else os.environ.get("GITLAB_URL", "https://gitlab.com")
+    ).rstrip("/")
 
 
-def _fetch_paginated(url: str, headers: dict[str, str], params: dict[str, Any] | None = None) -> list[dict]:
+def _fetch_paginated(
+    url: str, headers: dict[str, str], params: dict[str, Any] | None = None
+) -> list[dict]:
     items: list[dict] = []
     page = 1
     while True:
@@ -258,7 +262,9 @@ def collect_active_gitlab_users() -> tuple[list[dict[str, Any]], list[str]]:
         commit_emails.update(_collect_commit_emails(project_id, token, max_pages=30))
         members = _fetch_project_members(project_id, token)
         active_members = [m for m in members if _member_is_active(m) and not _is_bot(m)]
-        log.info(f"OK - {repo_name}: {len(active_members)} membros ativos humanos (de {len(members)} total)")
+        log.info(
+            f"OK - {repo_name}: {len(active_members)} membros ativos humanos (de {len(members)} total)"
+        )
 
         for member in active_members:
             uid = int(member["id"])
@@ -279,7 +285,9 @@ def collect_active_gitlab_users() -> tuple[list[dict[str, Any]], list[str]]:
     for user in by_id.values():
         user["email"] = _merge_email(user, commit_emails)
 
-    missing_usernames = [u["username"] for u in by_id.values() if not u.get("email") and u.get("username")]
+    missing_usernames = [
+        u["username"] for u in by_id.values() if not u.get("email") and u.get("username")
+    ]
     if missing_usernames:
         for project_id, repo_name in GITLAB_PROJECTS:
             token = _gitlab_token_for_repo(repo_name)
@@ -468,17 +476,13 @@ def main() -> int:
 
     without_email = [u for u in users if not u["email"]]
     if without_email:
-        log.warning(
-            f"\nAVISO - {len(without_email)} usuario(s) sem e-mail visivel na API GitLab:"
-        )
+        log.warning(f"\nAVISO - {len(without_email)} usuario(s) sem e-mail visivel na API GitLab:")
         for user in without_email:
             log.info(f"  - {user['name']} (@{user['username']}, id={user['gitlab_id']})")
 
     provisionable = [u for u in users if u["email"]]
     if args.dry_run:
-        log.info(
-            f"\nDRY-RUN: {len(provisionable)} usuario(s) seriam provisionados."
-        )
+        log.info(f"\nDRY-RUN: {len(provisionable)} usuario(s) seriam provisionados.")
         return 0
 
     password = _resolve_provision_password(args.password)
@@ -528,9 +532,7 @@ def main() -> int:
             log.error(f"ERRO - {email}: {exc}")
             failed += 1
 
-    log.info(
-        f"\nResumo: {created} criado(s), {skipped} ja existente(s), {failed} erro(s)."
-    )
+    log.info(f"\nResumo: {created} criado(s), {skipped} ja existente(s), {failed} erro(s).")
     return 0 if failed == 0 else 1
 
 

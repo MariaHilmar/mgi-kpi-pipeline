@@ -60,9 +60,7 @@ def parse_date(date_str: str | None) -> datetime | None:
     if not date_str:
         return None
     try:
-        return datetime.fromisoformat(
-            date_str.replace("Z", "+00:00").split("+")[0].strip()
-        )
+        return datetime.fromisoformat(date_str.replace("Z", "+00:00").split("+")[0].strip())
     except (ValueError, AttributeError):
         pass
     try:
@@ -219,9 +217,7 @@ def derive_date_fields(
         fields["ano_mes_fechamento"] = f"{closed_date.year}/{closed_date.month:02d}"
         fields["mes_fechamento"] = date(closed_date.year, closed_date.month, 1).isoformat()
         if created_date:
-            fields["lead_time_dias"] = max(
-                (closed_date.date() - created_date.date()).days, 0
-            )
+            fields["lead_time_dias"] = max((closed_date.date() - created_date.date()).days, 0)
 
     if aberto and created_date:
         idade = max((today - created_date.date()).days, 0)

@@ -45,9 +45,7 @@ def _headers(service_key: str) -> dict[str, str]:
     }
 
 
-def _fetch_profiles_without_gitlab_id(
-    supabase_url: str, service_key: str
-) -> list[dict[str, Any]]:
+def _fetch_profiles_without_gitlab_id(supabase_url: str, service_key: str) -> list[dict[str, Any]]:
     response = requests.get(
         f"{supabase_url}/rest/v1/profiles",
         headers=_headers(service_key),
@@ -73,9 +71,7 @@ def _fetch_gitlab_users_table(supabase_url: str, service_key: str) -> list[dict[
     return response.json()
 
 
-def _fetch_profiles_with_gitlab_id(
-    supabase_url: str, service_key: str
-) -> dict[int, str]:
+def _fetch_profiles_with_gitlab_id(supabase_url: str, service_key: str) -> dict[int, str]:
     response = requests.get(
         f"{supabase_url}/rest/v1/profiles",
         headers=_headers(service_key),
@@ -222,11 +218,11 @@ def run_backfill(*, dry_run: bool, from_gitlab_only: bool) -> int:
         log.info(f"{email:<42} {name:<28} {gitlab_id:<10} VINCULADO")
         linked += 1
 
-    log.info(
-        f"\nResumo: {linked} vinculado(s), {skipped} ignorado(s)/sem match."
-    )
+    log.info(f"\nResumo: {linked} vinculado(s), {skipped} ignorado(s)/sem match.")
     if unmatched:
-        log.info("\nSem correspondencia por e-mail (vincule manualmente em Admin > Usuarios > ID GitLab):")
+        log.info(
+            "\nSem correspondencia por e-mail (vincule manualmente em Admin > Usuarios > ID GitLab):"
+        )
         for email in unmatched:
             log.info(f"  - {email}")
 

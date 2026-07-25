@@ -48,7 +48,12 @@ def test_mapear_epico_grupo():
 def test_enriquecer_issues_com_epicos(monkeypatch):
     issues = [
         {"id": "10", "gitlab_id": "100", "gitlab_repo": "contratos_v2", "epic": None},
-        {"id": "11", "gitlab_id": "101", "gitlab_repo": "contratos_v2", "epic": {"title": "Ja tem"}},
+        {
+            "id": "11",
+            "gitlab_id": "101",
+            "gitlab_repo": "contratos_v2",
+            "epic": {"title": "Ja tem"},
+        },
     ]
     epics = [
         {

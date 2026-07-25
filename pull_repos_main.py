@@ -17,7 +17,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -48,7 +47,7 @@ def _rev_parse(coleta: GitColeta, ref: str, *, timeout: int = 30) -> str:
     return (coleta.run_git(f"rev-parse {ref}", timeout=timeout) or "").strip()
 
 
-def resolve_pull_branch(coleta: GitColeta, override: Optional[str] = None) -> str:
+def resolve_pull_branch(coleta: GitColeta, override: str | None = None) -> str:
     """Branch para pull: override CLI/env, senao origin/HEAD, branch atual ou master."""
     if override and override.strip().lower() != "auto":
         return override.strip()
@@ -57,7 +56,9 @@ def resolve_pull_branch(coleta: GitColeta, override: Optional[str] = None) -> st
     if env_branch and env_branch.lower() != "auto":
         return env_branch
 
-    sym = (coleta.run_git("symbolic-ref --short refs/remotes/origin/HEAD", timeout=10) or "").strip()
+    sym = (
+        coleta.run_git("symbolic-ref --short refs/remotes/origin/HEAD", timeout=10) or ""
+    ).strip()
     if sym.startswith("origin/"):
         return sym[len("origin/") :]
     if sym:
@@ -70,7 +71,7 @@ def resolve_pull_branch(coleta: GitColeta, override: Optional[str] = None) -> st
     return DEFAULT_BRANCH
 
 
-def _default_repos() -> List[Tuple[str, str]]:
+def _default_repos() -> list[tuple[str, str]]:
     repos = list(mgi_config.REPOS)
     if repos:
         return repos
@@ -80,7 +81,7 @@ def _default_repos() -> List[Tuple[str, str]]:
 def pull_repo_main(
     repo_name: str,
     *,
-    branch: Optional[str] = None,
+    branch: str | None = None,
     dry_run: bool = False,
 ) -> PullResult:
     """Fetch + pull --ff-only se origin/<branch> estiver a frente de HEAD."""
@@ -130,9 +131,7 @@ def pull_repo_main(
             message="sem alteracoes no remoto",
         )
 
-    merge_base = (
-        coleta.run_git(f"merge-base HEAD origin/{branch_name}", timeout=30) or ""
-    ).strip()
+    merge_base = (coleta.run_git(f"merge-base HEAD origin/{branch_name}", timeout=30) or "").strip()
     if merge_base != local:
         print(f"AVISO - Historico divergente (local={local[:12]}..., remoto={remote[:12]}...)")
         print("        Pull ignorado - resolva manualmente no WSL.")
@@ -183,7 +182,7 @@ def pull_repo_main(
     )
 
 
-def _branch_override(branch: Optional[str]) -> Optional[str]:
+def _branch_override(branch: str | None) -> str | None:
     if branch and branch.strip().lower() != "auto":
         return branch.strip()
     env_branch = os.environ.get("MGI_GIT_PULL_BRANCH", "").strip()
@@ -193,11 +192,11 @@ def _branch_override(branch: Optional[str]) -> Optional[str]:
 
 
 def pull_all_repos(
-    repos: Optional[List[Tuple[str, str]]] = None,
+    repos: list[tuple[str, str]] | None = None,
     *,
-    branch: Optional[str] = None,
+    branch: str | None = None,
     dry_run: bool = False,
-) -> Tuple[List[PullResult], int]:
+) -> tuple[list[PullResult], int]:
     """Executa pull condicional em todos os repos configurados."""
     repo_list = repos if repos is not None else _default_repos()
     branch_override = _branch_override(branch)
@@ -212,11 +211,9 @@ def pull_all_repos(
     if dry_run:
         print("Modo:      dry-run (sem pull)")
 
-    results: List[PullResult] = []
+    results: list[PullResult] = []
     for _, repo_name in repo_list:
-        results.append(
-            pull_repo_main(repo_name, branch=branch_override, dry_run=dry_run)
-        )
+        results.append(pull_repo_main(repo_name, branch=branch_override, dry_run=dry_run))
 
     updated = sum(1 for r in results if r.status == "updated")
     up_to_date = sum(1 for r in results if r.status == "up_to_date")
@@ -252,7 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _, exit_code = pull_all_repos(branch=args.branch, dry_run=args.dry_run)

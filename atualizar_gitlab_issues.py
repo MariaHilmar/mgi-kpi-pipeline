@@ -346,9 +346,9 @@ def _ensure_tokens(destino: Path) -> bool:
         return True
 
     log.warning("AVISO: Nenhum token GitLab definido.")
-    log.warning("        Global:  setx GITLAB_TOKEN \"<token>\"")
-    log.warning("        Por repo: setx GITLAB_TOKEN_CONTRATOS_V2 \"<token>\"")
-    log.warning("                  setx GITLAB_TOKEN_CONTRATOS \"<token>\"")
+    log.warning('        Global:  setx GITLAB_TOKEN "<token>"')
+    log.warning('        Por repo: setx GITLAB_TOKEN_CONTRATOS_V2 "<token>"')
+    log.warning('                  setx GITLAB_TOKEN_CONTRATOS "<token>"')
     log.warning("        Continuando com gitlab_issues_raw.json existente.")
     validar_json_local(destino)
     return False

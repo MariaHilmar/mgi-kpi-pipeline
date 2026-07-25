@@ -24,16 +24,16 @@ from typing import Any
 import requests
 
 from gitlab_epics import carregar_epicos, coletar_e_salvar_epicos, epics_json_path
-from gitlab_labels import (
-    carregar_tipo_labels,
-    coletar_e_salvar_tipo_labels,
-    labels_json_path,
-)
 from gitlab_identities import (
     build_participant_rows,
     collect_gitlab_users_from_records,
     issue_keys_from_records,
     prepare_issue_rows_for_upsert,
+)
+from gitlab_labels import (
+    carregar_tipo_labels,
+    coletar_e_salvar_tipo_labels,
+    labels_json_path,
 )
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 from logging_utils import get_logger
@@ -45,6 +45,7 @@ except ImportError:
     _config = None
 
 log = get_logger(__name__)
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -126,9 +127,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase gitlab_users ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase gitlab_users ({response.status_code}): {detail}")
         return len(rows)
 
     def replace_issue_participants(self, issue_keys: list[str], rows: list[dict[str, Any]]) -> int:
@@ -179,9 +178,7 @@ class SupabaseSync:
             )
             if not response.ok:
                 detail = response.text[:500]
-                raise RuntimeError(
-                    f"Erro Supabase issues ({response.status_code}): {detail}"
-                )
+                raise RuntimeError(f"Erro Supabase issues ({response.status_code}): {detail}")
             total += len(chunk)
             log.info(f"OK - Enviadas {total}/{len(rows)} issues")
         return total
@@ -197,9 +194,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase releases ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase releases ({response.status_code}): {detail}")
         return len(rows)
 
     def upsert_gitlab_epics(self, rows: list[dict[str, Any]]) -> int:
@@ -234,9 +229,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase gitlab_epics ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase gitlab_epics ({response.status_code}): {detail}")
         return len(payload)
 
     def upsert_gitlab_tipo_labels(self, rows: list[dict[str, Any]]) -> int:
@@ -282,9 +275,7 @@ class SupabaseSync:
         )
         if not response.ok:
             detail = response.text[:500]
-            raise RuntimeError(
-                f"Erro Supabase sync_runs ({response.status_code}): {detail}"
-            )
+            raise RuntimeError(f"Erro Supabase sync_runs ({response.status_code}): {detail}")
         return response.json()[0]["id"]
 
     def finish_sync_run(
@@ -324,7 +315,9 @@ def _notify_dashboard(url: str, secret: str) -> None:
         if response.ok:
             log.info(f"OK - Cache do dashboard invalidado ({endpoint})")
         else:
-            log.warning(f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}")
+            log.warning(
+                f"AVISO - Falha ao invalidar cache ({response.status_code}): {response.text[:200]}"
+            )
     except Exception as exc:
         log.warning(f"AVISO - Nao foi possivel notificar o dashboard: {exc}")
 
@@ -515,7 +508,9 @@ def sync_issues_to_supabase(
         if dashboard_url and revalidate_secret:
             _notify_dashboard(dashboard_url, revalidate_secret)
         else:
-            log.warning("AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado.")
+            log.warning(
+                "AVISO - DASHBOARD_URL ou REVALIDATE_SECRET nao configurados; cache nao invalidado."
+            )
 
         return upserted
     except Exception as exc:
@@ -534,7 +529,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Sync issues GitLab/JSON -> Supabase")
     parser.add_argument("--json", type=Path, default=None, help="Caminho do gitlab_issues_raw.json")
     parser.add_argument("--sem-releases", action="store_true")
-    parser.add_argument("--sem-epicos", action="store_true", help="Nao sincroniza catalogo de epicos")
+    parser.add_argument(
+        "--sem-epicos", action="store_true", help="Nao sincroniza catalogo de epicos"
+    )
     parser.add_argument(
         "--sem-tipos", action="store_true", help="Nao sincroniza catalogo de labels de tipo"
     )

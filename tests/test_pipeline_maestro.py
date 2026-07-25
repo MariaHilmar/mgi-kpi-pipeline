@@ -47,7 +47,9 @@ def test_executar_pipeline_feliz(pipeline_config: dict, monkeypatch: pytest.Monk
     assert maestro.issues_sincronizadas == 1
 
 
-def test_executar_pipeline_falha_sem_issues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_executar_pipeline_falha_sem_issues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     issues_json = tmp_path / "gitlab_issues_raw.json"
     issues_json.write_text("[]", encoding="utf-8")
     config = {
@@ -65,7 +67,9 @@ def test_executar_pipeline_falha_sem_issues(tmp_path: Path, monkeypatch: pytest.
     assert maestro.executar_pipeline() is False
 
 
-def test_executar_pipeline_falha_sync(pipeline_config: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_executar_pipeline_falha_sync(
+    pipeline_config: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(pm, "limpar_logs_antigos", lambda output_dir: 0)
     monkeypatch.setattr(pm, "validar_json_local", lambda path: None)
 

@@ -14,6 +14,7 @@ from pathlib import Path
 # Helpers de parsing (env vars)
 # ---------------------------------------------------------------------------
 
+
 def _parse_path_repo_pairs(raw: str) -> list[tuple[str, str]]:
     """Parse MGI_REPOS: path=repo_slug;path2=repo_slug2"""
     pairs: list[tuple[str, str]] = []
@@ -41,6 +42,7 @@ def _parse_repo_path_map(raw: str) -> dict[str, str]:
             mapping[name] = path
     return mapping
 
+
 # ---------------------------------------------------------------------------
 # Caminhos base
 # ---------------------------------------------------------------------------
@@ -49,12 +51,8 @@ BASE_DIR: Path = Path(os.environ.get("MGI_BASE_DIR", str(_WORKSPACE_DIR)))
 MGI_DIR: Path = Path(os.environ.get("MGI_PIPELINE_DIR", str(Path(__file__).resolve().parent)))
 LOGS_DIR: Path = BASE_DIR / "logs"
 
-ISSUES_JSON: Path = Path(
-    os.environ.get("MGI_ISSUES_JSON", str(MGI_DIR / "gitlab_issues_raw.json"))
-)
-EPICS_JSON: Path = Path(
-    os.environ.get("MGI_EPICS_JSON", str(MGI_DIR / "gitlab_epics_raw.json"))
-)
+ISSUES_JSON: Path = Path(os.environ.get("MGI_ISSUES_JSON", str(MGI_DIR / "gitlab_issues_raw.json")))
+EPICS_JSON: Path = Path(os.environ.get("MGI_EPICS_JSON", str(MGI_DIR / "gitlab_epics_raw.json")))
 TIPO_LABELS_JSON: Path = Path(
     os.environ.get("MGI_TIPO_LABELS_JSON", str(MGI_DIR / "gitlab_tipo_labels_raw.json"))
 )
@@ -87,22 +85,30 @@ DEFAULT_CUTOFF_DATE: datetime = datetime(2024, 1, 1)
 ALLOWED_MODULES: set[str] = {"Fiscalização", "Fornecedor"}
 # True = inclui todas as issues (qualquer modulo no titulo); False = so ALLOWED_MODULES
 ALL_MODULES: bool = os.environ.get("MGI_ALL_MODULES", "1").lower() not in (
-    "0", "false", "no",
+    "0",
+    "false",
+    "no",
 )
 # False = apenas atualiza issues ja na planilha, nao insere novas
 ALLOW_NEW_ISSUES: bool = os.environ.get("MGI_ALLOW_NEW_ISSUES", "1").lower() not in (
-    "0", "false", "no",
+    "0",
+    "false",
+    "no",
 )
 # True = nao sobrescreve Módulo / Área Funcional em linhas ja presentes no Excel
 PRESERVE_EXISTING_TAXONOMY: bool = os.environ.get("MGI_PRESERVE_TAXONOMY", "1").lower() not in (
-    "0", "false", "no",
+    "0",
+    "false",
+    "no",
 )
 # Issues fechadas ha mais de N dias sao excluidas do JSON e do processamento
 CLOSED_EXCLUDE_DAYS: int = int(os.environ.get("MGI_CLOSED_EXCLUDE_DAYS", "60"))
 # Carga inicial: inclui todas as issues do JSON, exceto fechadas antigas (60 dias)
 # A data de corte (ex.: 01/01/2024) continua valendo na carga inicial.
 INITIAL_LOAD: bool = os.environ.get("MGI_INITIAL_LOAD", "0").lower() not in (
-    "0", "false", "no",
+    "0",
+    "false",
+    "no",
 )
 # Logs e relatorios JSON mais antigos que N dias sao excluidos automaticamente
 LOG_RETENTION_DAYS: int = int(os.environ.get("MGI_LOG_RETENTION_DAYS", "5"))
@@ -140,6 +146,7 @@ def descricao_refresh_mode() -> str:
     if is_full_refresh():
         return "EXECUCAO COMPLETA (reprocessa metadados, labels, tipo e Dev/Git)"
     return "incremental (metadados GitLab so quando vazios)"
+
 
 # ---------------------------------------------------------------------------
 # Integracao GitLab (opcional) - NUNCA hardcodar token aqui
