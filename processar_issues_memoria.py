@@ -7,8 +7,8 @@ taxonomia, mas opera sobre dicts e devolve uma lista de registros com as colunas
 exatas da tabela public.issues.
 
 Campos manuais (situacao_analise, desenvolvedor_futuro, observacao_geral,
-chamado, priorizar, epico) sao deliberadamente omitidos para que o upsert
-preserve valores existentes no Supabase.
+chamado, priorizar) sao deliberadamente omitidos para que o upsert
+preserve valores existentes no Supabase. O campo `epico` vem do GitLab.
 """
 
 from __future__ import annotations
@@ -289,8 +289,12 @@ def build_issue_record(
     created_date = issue_fields.parse_date(issue.get("createdDate", ""))
     closed_date = issue_fields.parse_date(issue.get("closedDate", ""))
 
-    modulo = issue_fields.extract_module(title)
-    modulo_norm = issue_fields.normalized_module(title, modulo)
+    # `modulo_raw` preserva a tag original do titulo (usada so na qualidade).
+    # A coluna `modulo` gravada usa o valor canonico/bucket (padrao do dashboard),
+    # evitando dezenas de valores soltos vindos do Contratos v1 nos filtros/RPCs.
+    modulo_raw = issue_fields.extract_module(title)
+    modulo_norm = issue_fields.normalized_module(title, modulo_raw)
+    modulo = modulo_norm
 
     detection = _resolve_area(issue, title, area_detector)
     area = detection.area
@@ -313,11 +317,13 @@ def build_issue_record(
         "prioridade": labels["prioridade"],
         "equipe": labels["equipe"],
         "parceria": labels["parceria"],
+        "epico": issue_fields.extract_epico(issue),
         "sprint": (issue.get("milestone") or {}).get("title", "") or "",
         "assignee": issue_fields.format_assignees(issue),
         "autor": (issue.get("author") or {}).get("name", "") or "",
         "solicitante": labels["solicitante"],
         "alteracao_escopo": labels["alteracao_escopo"],
+        "mergeado_em": issue.get("mergeado_em") or None,
         "synced_at": synced_at,
         "updated_at": synced_at,
     }
@@ -326,7 +332,7 @@ def build_issue_record(
         issue_fields.derive_date_fields(created_date, closed_date, estado, today=today)
     )
     record.update(_resolve_dev(issue, dev_enricher))
-    record.update(issue_fields.quality_fields(title, modulo, area, area_conf))
+    record.update(issue_fields.quality_fields(title, modulo_raw, area, area_conf))
     record["faixa_idade"] = issue_fields.faixa_idade(
         record.get("idade_dias"), record.get("aberto", False)
     )

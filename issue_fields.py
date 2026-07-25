@@ -37,13 +37,21 @@ MODULE_MAP: dict[str, str] = {
 # Colunas preenchidas manualmente no historico (Excel). NUNCA sao calculadas
 # aqui; ficam de fora dos registros para que o upsert no Supabase preserve o
 # valor existente em vez de sobrescrever com nulo.
+# Nota: `epico` deixou de ser manual — vem do GitLab (issue.epic / label / catalogo).
 MANUAL_FIELDS = (
     "situacao_analise",
     "desenvolvedor_futuro",
     "observacao_geral",
     "chamado",
     "priorizar",
-    "epico",
+)
+
+_EPICO_LABEL_PREFIXES = (
+    "Épico::",
+    "Epico::",
+    "epico::",
+    "Epic::",
+    "epic::",
 )
 
 
@@ -114,6 +122,7 @@ def parse_labels(labels: list[str] | None) -> dict[str, str]:
         "parceria": "",
         "prioridade": "",
         "solicitante": "",
+        "epico": "",
         "alteracao_escopo": "Não",
     }
     for label in labels or []:
@@ -129,9 +138,28 @@ def parse_labels(labels: list[str] | None) -> dict[str, str]:
             parsed["prioridade"] = label.split("::", 1)[1]
         elif label.startswith("Solicitante::"):
             parsed["solicitante"] = label.split("::", 1)[1]
+        elif any(label.startswith(prefix) for prefix in _EPICO_LABEL_PREFIXES):
+            parsed["epico"] = label.split("::", 1)[1].strip()
         elif label.strip() == "Alteração Escopo":
             parsed["alteracao_escopo"] = "Sim"
     return parsed
+
+
+def extract_epico(issue: dict | None) -> str:
+    """Resolve o titulo do epico: label > objeto epic da API > vazio."""
+    if not issue:
+        return ""
+    labels = parse_labels(issue.get("labels") or [])
+    if labels.get("epico"):
+        return labels["epico"]
+    epic = issue.get("epic")
+    if isinstance(epic, dict):
+        title = (epic.get("title") or "").strip()
+        if title:
+            return title
+    if isinstance(epic, str) and epic.strip():
+        return epic.strip()
+    return ""
 
 
 def format_assignees(issue: dict) -> str:

@@ -52,6 +52,12 @@ LOGS_DIR: Path = BASE_DIR / "logs"
 ISSUES_JSON: Path = Path(
     os.environ.get("MGI_ISSUES_JSON", str(MGI_DIR / "gitlab_issues_raw.json"))
 )
+EPICS_JSON: Path = Path(
+    os.environ.get("MGI_EPICS_JSON", str(MGI_DIR / "gitlab_epics_raw.json"))
+)
+TIPO_LABELS_JSON: Path = Path(
+    os.environ.get("MGI_TIPO_LABELS_JSON", str(MGI_DIR / "gitlab_tipo_labels_raw.json"))
+)
 GIT_DATA_JSON: Path = Path(
     os.environ.get("MGI_GIT_DATA_JSON", str(BASE_DIR / "gitlab_git_data.json"))
 )
@@ -144,6 +150,8 @@ GITLAB_TOKEN: str = os.environ.get("GITLAB_TOKEN", "")
 GITLAB_TOKEN_CONTRATOS_V2: str = os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", "")
 GITLAB_TOKEN_CONTRATOS: str = os.environ.get("GITLAB_TOKEN_CONTRATOS", "")
 GITLAB_PROJECT_ID: str = os.environ.get("GITLAB_PROJECT_ID", "comprasnet%2Fcontratos_v2")
+# Grupo onde vivem os epicos (catalogo do filtro Épico no dashboard).
+GITLAB_GROUP_PATH: str = os.environ.get("GITLAB_GROUP_PATH", "comprasnet")
 # (project_id URL-encoded, nome curto do repo)
 GITLAB_PROJECTS: list[tuple[str, str]] = [
     ("comprasnet%2Fcontratos_v2", "contratos_v2"),

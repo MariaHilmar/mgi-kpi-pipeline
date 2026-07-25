@@ -30,6 +30,8 @@ try:
 except ImportError:
     config = None
 
+from gitlab_epics import coletar_e_salvar_epicos, mapear_epic_api
+from gitlab_merges import enriquecer_issues_com_merge_dates
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
 from issue_keys import make_issue_key
 from logging_utils import get_logger
@@ -76,6 +78,7 @@ def _mapear_issue_api(issue: dict, gitlab_repo: str) -> dict:
     author = issue.get("author") or {}
     assignees = issue.get("assignees") or []
     milestone = issue.get("milestone") or {}
+    epic = mapear_epic_api(issue.get("epic"), issue.get("epic_iid"))
     return {
         # IID = numero visivel no GitLab (#1289). NAO usar issue['id'] global.
         "id": str(issue["iid"]),
@@ -102,6 +105,7 @@ def _mapear_issue_api(issue: dict, gitlab_repo: str) -> dict:
             if assignee.get("name") or assignee.get("id")
         ],
         "milestone": {"title": milestone.get("title", "") if milestone else ""},
+        "epic": epic,
         "labels": issue.get("labels", []) or [],
         "merge_requests_count": issue.get("merge_requests_count", 0) or 0,
     }
@@ -387,6 +391,16 @@ def atualizar_issues(
 
     issues, _ = _aplicar_filtro_fechadas(issues)
 
+    try:
+        coletar_e_salvar_epicos(issues=issues, dry_run=dry_run)
+    except Exception as exc:
+        log.warning(f"AVISO - falha ao coletar epicos do grupo: {exc}")
+
+    try:
+        enriquecer_issues_com_merge_dates(issues)
+    except Exception as exc:
+        log.warning(f"AVISO - falha ao coletar datas de merge: {exc}")
+
     if dry_run:
         log.info(f"OK - Dry-run: {len(issues)} issues seriam gravadas (modo completo)")
         return True
@@ -448,6 +462,16 @@ def atualizar_issues_incremental(
     merged, removed_old_closed = _aplicar_filtro_fechadas(merged)
     if removed_old_closed:
         log.info(f"OK - {removed_old_closed} issues removidas do JSON por filtro de fechadas")
+
+    try:
+        coletar_e_salvar_epicos(issues=merged, dry_run=dry_run)
+    except Exception as exc:
+        log.warning(f"AVISO - falha ao coletar epicos do grupo: {exc}")
+
+    try:
+        enriquecer_issues_com_merge_dates(merged)
+    except Exception as exc:
+        log.warning(f"AVISO - falha ao coletar datas de merge: {exc}")
 
     if dry_run:
         log.info(

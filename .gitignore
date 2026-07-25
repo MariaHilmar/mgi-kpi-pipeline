@@ -16,6 +16,8 @@ venv/
 
 # Artefatos gerados pela pipeline
 gitlab_issues_raw.json
+gitlab_epics_raw.json
+gitlab_tipo_labels_raw.json
 gitlab_issues_sync_state.json
 gitlab_fiscalizacao_data.json
 gitlab_git_data.json
