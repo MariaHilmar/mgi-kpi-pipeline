@@ -32,6 +32,16 @@ def test_filter_mantem_sem_data_criacao():
     assert len(kept) == 1
 
 
+def test_filter_issues_by_repos():
+    issues = [
+        {"id": "1", "gitlab_repo": "contratos_v2"},
+        {"id": "2", "gitlab_repo": "contratos"},
+    ]
+    kept = s._filter_issues_by_repos(issues, ["contratos"])
+    assert len(kept) == 1
+    assert kept[0]["id"] == "2"
+
+
 class _FakeResponse:
     def __init__(self, ok=True, status_code=201, text=""):
         self.ok = ok
@@ -56,6 +66,26 @@ def test_upsert_issues_chunking(monkeypatch):
     total = client.upsert_issues(rows)
     assert total == 450
     assert calls == [200, 200, 50]
+
+
+def test_upsert_issues_mixed_keys_agrupa_antes_do_post(monkeypatch):
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({tuple(sorted(row.keys())) for row in json})
+        return _FakeResponse(ok=True)
+
+    monkeypatch.setattr(s.requests, "post", fake_post)
+    client = s.SupabaseSync("https://x.supabase.co", "key")
+    rows = [
+        {"issue_key": "a", "autor": "Ana"},
+        {"issue_key": "b", "autor": "Bob", "epico": "Epico"},
+        {"issue_key": "c", "autor": "C"},
+    ]
+    assert client.upsert_issues(rows) == 3
+    assert len(calls) == 2
+    for batch_keys in calls:
+        assert len(batch_keys) == 1
 
 
 def test_upsert_issues_erro_lança(monkeypatch):

@@ -53,17 +53,12 @@ def _token_for_repo(repo: str) -> str:
     slug = _normalize_repo(repo)
     if config and hasattr(config, "gitlab_token_for_repo"):
         return config.gitlab_token_for_repo(slug) or ""
+    global_token = os.environ.get("GITLAB_TOKEN", "").strip()
+    if global_token:
+        return global_token
     if slug == "contratos":
-        return (
-            os.environ.get("GITLAB_TOKEN_CONTRATOS", "")
-            or os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", "")
-            or os.environ.get("GITLAB_TOKEN", "")
-        )
-    return (
-        os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", "")
-        or os.environ.get("GITLAB_TOKEN_CONTRATOS", "")
-        or os.environ.get("GITLAB_TOKEN", "")
-    )
+        return os.environ.get("GITLAB_TOKEN_CONTRATOS", "").strip()
+    return os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", "").strip()
 
 
 def _iid_of(issue: dict) -> int | None:
@@ -88,8 +83,12 @@ def _related_mrs_merged_ats(
     token: str | None,
     session,
     timeout: float,
+    retries: int = 1,
+    retry_delay: float = 5.0,
 ) -> tuple[str | None, int]:
     """Retorna (max_merged_at|None, http_status). status 0 = erro de rede."""
+    import time
+
     import requests
 
     pid = _repo_project_map().get(slug, DEFAULT_PROJECT_ID)
@@ -97,25 +96,34 @@ def _related_mrs_merged_ats(
     headers = {"PRIVATE-TOKEN": auth} if auth else {}
     getter = session.get if session is not None else requests.get
     url = f"{_gitlab_url()}/api/v4/projects/{pid}/issues/{iid}/related_merge_requests"
-    try:
-        response = getter(url, headers=headers, timeout=timeout)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("AVISO - falha ao buscar MRs da issue %s/%s: %s", slug, iid, exc)
-        return None, 0
-    if response.status_code == 404:
-        return None, 404
-    if not response.ok:
-        log.warning(
-            "AVISO - related_merge_requests %s/%s status %s", slug, iid, response.status_code
-        )
-        return None, response.status_code
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            response = getter(url, headers=headers, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt >= retries:
+                log.warning("AVISO - falha ao buscar MRs da issue %s/%s: %s", slug, iid, exc)
+                return None, 0
+            time.sleep(retry_delay * attempt)
+            continue
+        if response.status_code == 404:
+            return None, 404
+        if not response.ok:
+            log.warning(
+                "AVISO - related_merge_requests %s/%s status %s", slug, iid, response.status_code
+            )
+            return None, response.status_code
 
-    datas = [
-        (mr.get("merged_at") or "").strip()
-        for mr in response.json()
-        if (mr.get("state") == "merged") and (mr.get("merged_at"))
-    ]
-    return (max(datas) if datas else None), response.status_code
+        datas = [
+            (mr.get("merged_at") or "").strip()
+            for mr in response.json()
+            if (mr.get("state") == "merged") and (mr.get("merged_at"))
+        ]
+        return (max(datas) if datas else None), response.status_code
+    if last_exc is not None:
+        log.warning("AVISO - falha ao buscar MRs da issue %s/%s: %s", slug, iid, last_exc)
+    return None, 0
 
 
 def merged_at_for_issue(
@@ -124,26 +132,49 @@ def merged_at_for_issue(
     *,
     token: str | None = None,
     session=None,
-    timeout: float = 20,
+    timeout: float | None = None,
+    retries: int = 1,
+    retry_delay: float = 5.0,
 ) -> str | None:
     """Maior `merged_at` entre os MRs mergeados vinculados a uma issue (ISO) ou None.
 
     Se o projeto rotulado retornar 404 (issues com gitlab_repo incorreto no banco),
     tenta o outro projeto conhecido (contratos <-> contratos_v2).
     """
+    import os
+
     import requests
+
+    if timeout is None:
+        timeout = float(os.environ.get("MGI_GITLAB_HTTP_TIMEOUT", "120"))
+    if retries <= 1:
+        retries = max(1, int(os.environ.get("MGI_GITLAB_HTTP_RETRIES", "3")))
 
     if session is None:
         session = requests.Session()
 
     slug = _normalize_repo(repo)
-    data, status = _related_mrs_merged_ats(iid, slug, token=token, session=session, timeout=timeout)
+    data, status = _related_mrs_merged_ats(
+        iid,
+        slug,
+        token=token,
+        session=session,
+        timeout=timeout,
+        retries=retries,
+        retry_delay=retry_delay,
+    )
     if status != 404:
         return data
 
     fallback = "contratos" if slug == "contratos_v2" else "contratos_v2"
     data_fb, status_fb = _related_mrs_merged_ats(
-        iid, fallback, token=token, session=session, timeout=timeout
+        iid,
+        fallback,
+        token=token,
+        session=session,
+        timeout=timeout,
+        retries=retries,
+        retry_delay=retry_delay,
     )
     if status_fb == 200:
         return data_fb
@@ -154,22 +185,76 @@ def enriquecer_issues_com_merge_dates(
     issues: list[dict[str, Any]],
     *,
     token: str | None = None,
+    repos: list[str] | None = None,
 ) -> int:
     """Preenche `issue['mergeado_em']` para issues com MR. Retorna quantas foram preenchidas."""
+    import os
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     import requests
 
-    session = requests.Session()
-    filled = 0
-    candidatas = [i for i in issues if _mr_count(i) > 0 and _iid_of(i) is not None]
-    log.info("OK - Buscando datas de merge de %d issues com MR...", len(candidatas))
-    for index, issue in enumerate(candidatas, start=1):
+    repo_filter = {_normalize_repo(repo) for repo in (repos or []) if repo and repo.strip()}
+    timeout = float(os.environ.get("MGI_GITLAB_HTTP_TIMEOUT", "120"))
+    retries = max(1, int(os.environ.get("MGI_GITLAB_HTTP_RETRIES", "3")))
+    retry_delay = float(os.environ.get("MGI_GITLAB_HTTP_RETRY_DELAY", "5"))
+    workers = max(1, min(int(os.environ.get("MGI_GITLAB_MERGE_WORKERS", "10")), 30))
+
+    candidatas = []
+    for issue in issues:
+        if _mr_count(issue) <= 0 or _iid_of(issue) is None:
+            continue
+        repo = _normalize_repo(issue.get("gitlab_repo") or "contratos_v2")
+        if repo_filter and repo not in repo_filter:
+            continue
+        candidatas.append(issue)
+
+    log.info(
+        "OK - Buscando datas de merge de %d issues com MR (%d workers)...",
+        len(candidatas),
+        workers,
+    )
+
+    # Sessao por thread: requests.Session nao e garantidamente thread-safe.
+    _local = threading.local()
+
+    def _session() -> requests.Session:
+        sess = getattr(_local, "session", None)
+        if sess is None:
+            sess = requests.Session()
+            _local.session = sess
+        return sess
+
+    def _resolve(issue: dict[str, Any]) -> str | None:
         iid = _iid_of(issue)
         repo = _normalize_repo(issue.get("gitlab_repo") or "contratos_v2")
-        data = merged_at_for_issue(iid, repo, token=token, session=session)
-        if data:
-            issue["mergeado_em"] = data
-            filled += 1
-        if index % 50 == 0:
-            log.info("OK - %d/%d issues verificadas para merge", index, len(candidatas))
+        return merged_at_for_issue(
+            iid,
+            repo,
+            token=token,
+            session=_session(),
+            timeout=timeout,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+
+    filled = 0
+    done = 0
+    total = len(candidatas)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_to_issue = {pool.submit(_resolve, issue): issue for issue in candidatas}
+        for future in as_completed(future_to_issue):
+            issue = future_to_issue[future]
+            try:
+                data = future.result()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("AVISO - falha ao resolver merge da issue %s: %s", _iid_of(issue), exc)
+                data = None
+            if data:
+                issue["mergeado_em"] = data
+                filled += 1
+            done += 1
+            if done % 50 == 0:
+                log.info("OK - %d/%d issues verificadas para merge", done, total)
     log.info("OK - %d issues com data de merge", filled)
     return filled

@@ -33,3 +33,6 @@ templates/*.xlsx
 Thumbs.db
 .idea/
 .vscode/
+
+# Sondas temporarias
+tmp_*.py

@@ -101,12 +101,46 @@ def build_participant_rows(records: Iterable[dict[str, Any]]) -> list[dict[str, 
     return rows
 
 
+UPSERT_PRESERVE_IF_BLANK = frozenset(
+    {
+        "epico",
+        "mergeado_em",
+        "gitlab_developer_id",
+        "dev_ultimo_commit",
+    }
+)
+
+
+def _blank_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
 def strip_internal_fields(record: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in record.items() if not key.startswith("_")}
 
 
 def prepare_issue_rows_for_upsert(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [strip_internal_fields(record) for record in records]
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        row = strip_internal_fields(record)
+        for field in UPSERT_PRESERVE_IF_BLANK:
+            if field in row and _blank_value(row[field]):
+                # Omite campo vazio para nao apagar valor ja correto no Supabase.
+                row.pop(field, None)
+        rows.append(row)
+    return rows
+
+
+def group_rows_by_postgrest_keys(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Agrupa linhas pelo mesmo conjunto de chaves (exigencia do PostgREST em lote)."""
+    groups: dict[frozenset[str], list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(frozenset(row.keys()), []).append(row)
+    return list(groups.values())
 
 
 def resolve_developer_gitlab_id(

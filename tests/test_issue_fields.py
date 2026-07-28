@@ -68,6 +68,14 @@ def test_parse_labels():
     assert parsed["alteracao_escopo"] == "Sim"
 
 
+def test_extract_epico_parent_tem_prioridade_sobre_label():
+    issue = {
+        "work_item_parent": {"title": "Via Parent"},
+        "labels": ["Epico::Via Label"],
+    }
+    assert f.extract_epico(issue) == "Via Parent"
+
+
 def test_extract_epico_da_api():
     assert f.extract_epico({"epic": {"title": "Epico API"}, "labels": []}) == "Epico API"
 
