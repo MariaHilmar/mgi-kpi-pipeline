@@ -28,3 +28,6 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["F401"]
+# Carrega o .env (via _load_dotenv_early) ANTES de importar módulos que leem config;
+# por isso alguns imports ficam após código no topo do arquivo.
+"atualizar_gitlab_issues.py" = ["E402"]

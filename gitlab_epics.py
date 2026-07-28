@@ -637,15 +637,19 @@ def _buscar_issues_do_epico(
     group: str | None = None,
     token: str | None = None,
 ) -> list[dict]:
+    import urllib.parse
+
     import requests
 
-    group_id = group or group_path()
+    # Sanitiza os segmentos do path da URL (grupo do config + iid numérico).
+    group_seg = urllib.parse.quote(str(group or group_path()), safe="")
+    epic_seg = int(epic_iid)
     headers = {}
     auth = token if token is not None else _any_gitlab_token()
     if auth:
         headers["PRIVATE-TOKEN"] = auth
 
-    url = f"{_gitlab_url()}/api/v4/groups/{group_id}/epics/{epic_iid}/issues"
+    url = f"{_gitlab_url()}/api/v4/groups/{group_seg}/epics/{epic_seg}/issues"
     params: dict[str, object] = {"per_page": 100, "page": 1}
     issues: list[dict] = []
     while True:

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 import pytest
 
-
 # Baseline "como em CI" (sem .env local). Tests que precisem de outro valor
 # devem setá-lo explicitamente (monkeypatch/apply_pipeline_runtime_flags).
 _RUNTIME_ENV_VARS = (
