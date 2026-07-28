@@ -14,10 +14,18 @@ except ImportError:
     config = None
 
 
+DEFAULT_LOG_PATTERNS: tuple[str, ...] = (
+    "pipeline_*.log",
+    "scheduled_*.log",
+    "pull_repos_*.log",
+    "relatorio_*.json",
+)
+
+
 def _retention_days() -> int:
     if config is not None:
-        return int(getattr(config, "LOG_RETENTION_DAYS", 5))
-    return int(os.environ.get("MGI_LOG_RETENTION_DAYS", "5"))
+        return int(getattr(config, "LOG_RETENTION_DAYS", 7))
+    return int(os.environ.get("MGI_LOG_RETENTION_DAYS", "7"))
 
 
 def _log_directories(base_dir: Path) -> list[Path]:
@@ -32,9 +40,9 @@ def _log_directories(base_dir: Path) -> list[Path]:
 def limpar_logs_antigos(
     base_dir: Path,
     dias: int | None = None,
-    patterns: Iterable[str] = ("pipeline_*.log", "relatorio_*.json"),
+    patterns: Iterable[str] = DEFAULT_LOG_PATTERNS,
 ) -> int:
-    """Remove logs e relatorios mais antigos que N dias."""
+    """Remove logs e relatorios mais antigos que N dias (mantem os ultimos N dias)."""
     exclude_days = _retention_days() if dias is None else dias
     if exclude_days <= 0:
         return 0
@@ -53,4 +61,20 @@ def limpar_logs_antigos(
                 except OSError:
                     continue
 
+    return removed
+
+
+def executar_limpeza_logs(
+    base_dir: Path | None = None,
+    dias: int | None = None,
+) -> int:
+    """Limpeza padrao com mensagem para execucao agendada ou manual."""
+    if base_dir is None:
+        base_dir = Path(getattr(config, "BASE_DIR", Path(__file__).resolve().parent.parent))
+    retention = _retention_days() if dias is None else dias
+    removed = limpar_logs_antigos(base_dir, dias=retention)
+    if removed:
+        print(f"OK - {removed} arquivo(s) de log com mais de {retention} dias removidos")
+    else:
+        print(f"OK - Nenhum log com mais de {retention} dias para remover")
     return removed

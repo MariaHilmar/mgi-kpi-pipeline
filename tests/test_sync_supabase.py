@@ -13,7 +13,12 @@ def test_filter_remove_fechadas_antigas_e_antes_do_corte():
     antiga_fechada = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%dT10:00:00")
     issues = [
         {"id": 1, "state": "opened", "createdDate": "2025-01-01T10:00:00"},
-        {"id": 2, "state": "closed", "createdDate": "2025-01-01T10:00:00", "closedDate": antiga_fechada},
+        {
+            "id": 2,
+            "state": "closed",
+            "createdDate": "2025-01-01T10:00:00",
+            "closedDate": antiga_fechada,
+        },
         {"id": 3, "state": "opened", "createdDate": "2020-01-01T10:00:00"},  # antes do corte
     ]
     kept = s._filter_issues_for_sync(issues)

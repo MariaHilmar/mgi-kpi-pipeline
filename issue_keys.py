@@ -52,6 +52,7 @@ def gitlab_work_item_url(repo: str, iid: str) -> str:
     iid = str(iid).strip()
     return f"{GITLAB_BASE_URL}/{project}/-/work_items/{iid}"
 
+
 WSL_REPO_PATHS: dict[str, str] = {
     "contratos_v2": "/root/MGI/contratos_v2",
     "contratos": "/root/MGI/contratos",

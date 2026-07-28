@@ -54,6 +54,7 @@ def test_parse_labels():
         "Parceria::SERPRO",
         "priority::Alta",
         "Solicitante::Joao",
+        "Épico::Entrega PNCP",
         "Alteração Escopo",
     ]
     parsed = f.parse_labels(labels)
@@ -63,7 +64,25 @@ def test_parse_labels():
     assert parsed["parceria"] == "SERPRO"
     assert parsed["prioridade"] == "Alta"
     assert parsed["solicitante"] == "Joao"
+    assert parsed["epico"] == "Entrega PNCP"
     assert parsed["alteracao_escopo"] == "Sim"
+
+
+def test_extract_epico_da_api():
+    assert f.extract_epico({"epic": {"title": "Epico API"}, "labels": []}) == "Epico API"
+
+
+def test_extract_epico_label_tem_prioridade():
+    issue = {
+        "epic": {"title": "Epico API"},
+        "labels": ["Epico::Via Label"],
+    }
+    assert f.extract_epico(issue) == "Via Label"
+
+
+def test_extract_epico_vazio():
+    assert f.extract_epico({}) == ""
+    assert f.extract_epico({"epic": None, "labels": []}) == ""
 
 
 def test_parse_labels_default_escopo():
