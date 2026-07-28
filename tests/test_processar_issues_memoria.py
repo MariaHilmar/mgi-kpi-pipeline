@@ -38,6 +38,7 @@ def test_record_basico_sem_git():
     assert rec["estado"] == "Aberto"
     assert rec["prioridade"] == "Alta"
     assert rec["parceria"] == "SERPRO"
+    assert rec["epico"] == ""
     assert rec["sprint"] == "Sprint 5"
     assert rec["assignee"] == "Bob"
     assert rec["autor"] == "Ana"
@@ -45,6 +46,14 @@ def test_record_basico_sem_git():
     assert rec["gitlab_assignee_ids"] == [202]
     assert rec["aberto"] is True
     assert rec["gitlab_mrs"] == 2
+
+
+def test_record_inclui_epico_da_api():
+    rec = p.build_issue_record(
+        _issue(epic={"iid": 59, "title": "Epico Gestao"}),
+        today=date(2025, 3, 1),
+    )
+    assert rec["epico"] == "Epico Gestao"
 
 
 def test_issue_key_usa_nome_de_exibicao_contratos_v1():
