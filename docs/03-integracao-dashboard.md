@@ -20,8 +20,9 @@ Grupos de colunas:
 - **Taxonomia:** `modulo`, `modulo_normalizado`, `area_funcional`, `tipo`.
 - **Estado/labels:** `estado`, `status`, `prioridade`, `equipe`, `parceria`,
   `epico`, `sprint`, `assignee`, `autor`, `solicitante`, `alteracao_escopo`.
-  O `epico` vem do vinculo GitLab (`issue.epic.title`), label `Épico::`/`Epico::`
-  ou enriquecimento via issues filhas do catalogo de epicos do grupo.
+  O `epico` vem do **Parent** do work item (GraphQL), label `Épico::`/`Epico::`,
+  do objeto REST `issue.epic` ou do enriquecimento via catálogo de épicos do
+  grupo. Ver [06-epicos-gitlab.md](06-epicos-gitlab.md).
 - **Identidades GitLab:** `gitlab_author_id`, `gitlab_assignee_ids`,
   `gitlab_developer_id` (denormalizados; espelhados em `issue_participants`).
 - **Datas/SLA:** `criado_em`, `fechado_em`, `lead_time_dias`, `ano_mes_criacao`,

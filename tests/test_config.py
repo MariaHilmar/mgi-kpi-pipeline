@@ -42,6 +42,22 @@ class TestParseRepoPathMap:
         assert config._parse_repo_path_map("") == {}
 
 
+class TestGitlabTokenForRepo:
+    def test_global_token_vale_para_ambos_repos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITLAB_TOKEN", "global-token")
+        monkeypatch.setenv("GITLAB_TOKEN_CONTRATOS_V2", "v2-only")
+        monkeypatch.setenv("GITLAB_TOKEN_CONTRATOS", "v1-only")
+        assert config.gitlab_token_for_repo("contratos_v2") == "global-token"
+        assert config.gitlab_token_for_repo("contratos") == "global-token"
+
+    def test_token_por_repo_sem_global(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+        monkeypatch.setenv("GITLAB_TOKEN_CONTRATOS_V2", "v2-only")
+        monkeypatch.setenv("GITLAB_TOKEN_CONTRATOS", "v1-only")
+        assert config.gitlab_token_for_repo("contratos_v2") == "v2-only"
+        assert config.gitlab_token_for_repo("contratos") == "v1-only"
+
+
 class TestApplyPipelineRuntimeFlags:
     def test_flags_ativam_env_e_modulo(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import config as cfg

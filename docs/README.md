@@ -36,6 +36,7 @@ no Supabase. Toda a escrita no banco é feita por este pipeline, usando a
 | [03-integracao-dashboard.md](03-integracao-dashboard.md) | Contrato de dados Supabase ↔ dashboard, campos derivados e KPIs. |
 | [04-configuracao-execucao.md](04-configuracao-execucao.md) | Variáveis de ambiente, execução, testes e CI. |
 | [05-agendamento.md](05-agendamento.md) | Task Scheduler — execução automática diária. |
+| [06-epicos-gitlab.md](06-epicos-gitlab.md) | Épicos no GitLab MGI (Parent vs API legada) e resolução de `issues.epico`. |
 | [08-repositorio-github.md](08-repositorio-github.md) | Repositório canônico no GitHub (não espelhar para GitLab). |
 | [../mgi-kpi-dashboard/docs/10-identidades-gitlab.md](../mgi-kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
 

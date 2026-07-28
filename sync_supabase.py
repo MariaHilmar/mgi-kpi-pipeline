@@ -23,10 +23,17 @@ from typing import Any
 
 import requests
 
-from gitlab_epics import carregar_epicos, coletar_e_salvar_epicos, epics_json_path
+from gitlab_epics import (
+    _any_gitlab_token,
+    aplicar_epicos_em_issues,
+    carregar_epicos,
+    coletar_e_salvar_epicos,
+    epics_json_path,
+)
 from gitlab_identities import (
     build_participant_rows,
     collect_gitlab_users_from_records,
+    group_rows_by_postgrest_keys,
     issue_keys_from_records,
     prepare_issue_rows_for_upsert,
 )
@@ -36,6 +43,7 @@ from gitlab_labels import (
     labels_json_path,
 )
 from issue_filters import filtrar_issues_fechadas_antigas, parse_issue_datetime
+from issue_keys import get_gitlab_repo, normalize_repo
 from logging_utils import get_logger
 from processar_issues_memoria import build_issue_records, resolve_enable_git
 
@@ -106,6 +114,25 @@ def _filter_issues_for_sync(issues: list[dict[str, Any]]) -> list[dict[str, Any]
     return kept
 
 
+def _filter_issues_by_repos(
+    issues: list[dict[str, Any]],
+    repos: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Limita o sync a um ou mais repositorios (slug: contratos_v2 | contratos)."""
+    if not repos:
+        return issues
+    allowed = {normalize_repo(repo) for repo in repos if repo and repo.strip()}
+    unknown = allowed - {"contratos_v2", "contratos"}
+    if unknown:
+        raise ValueError(f"Repositorio(s) desconhecido(s): {', '.join(sorted(unknown))}")
+    kept = [issue for issue in issues if get_gitlab_repo(issue) in allowed]
+    log.info(
+        f"OK - Filtro --repo {sorted(allowed)}: "
+        f"{len(kept)}/{len(issues)} issues (outros repos permanecem intactos no Supabase)"
+    )
+    return kept
+
+
 class SupabaseSync:
     def __init__(self, url: str, service_key: str) -> None:
         self.base = url.rstrip("/") + "/rest/v1"
@@ -132,17 +159,21 @@ class SupabaseSync:
 
     def replace_issue_participants(self, issue_keys: list[str], rows: list[dict[str, Any]]) -> int:
         if issue_keys:
-            keys_filter = f"in.({','.join(json.dumps(key) for key in issue_keys)})"
-            delete_response = requests.delete(
-                f"{self.base}/issue_participants?issue_key={keys_filter}",
-                headers=self.headers,
-                timeout=120,
-            )
-            if not delete_response.ok:
-                detail = delete_response.text[:500]
-                raise RuntimeError(
-                    f"Erro ao limpar issue_participants ({delete_response.status_code}): {detail}"
+            # DELETE em lotes: com muitas chaves na URL o PostgREST retorna 414 (URI too long).
+            delete_chunk = 200
+            for start in range(0, len(issue_keys), delete_chunk):
+                batch = issue_keys[start : start + delete_chunk]
+                keys_filter = f"in.({','.join(json.dumps(key) for key in batch)})"
+                delete_response = requests.delete(
+                    f"{self.base}/issue_participants?issue_key={keys_filter}",
+                    headers=self.headers,
+                    timeout=120,
                 )
+                if not delete_response.ok:
+                    detail = delete_response.text[:500]
+                    raise RuntimeError(
+                        f"Erro ao limpar issue_participants ({delete_response.status_code}): {detail}"
+                    )
         if not rows:
             return 0
         total = 0
@@ -168,19 +199,20 @@ class SupabaseSync:
             return 0
         total = 0
         chunk_size = 200
-        for start in range(0, len(rows), chunk_size):
-            chunk = rows[start : start + chunk_size]
-            response = requests.post(
-                f"{self.base}/issues?on_conflict=issue_key",
-                headers=self.headers,
-                json=chunk,
-                timeout=120,
-            )
-            if not response.ok:
-                detail = response.text[:500]
-                raise RuntimeError(f"Erro Supabase issues ({response.status_code}): {detail}")
-            total += len(chunk)
-            log.info(f"OK - Enviadas {total}/{len(rows)} issues")
+        for group in group_rows_by_postgrest_keys(rows):
+            for start in range(0, len(group), chunk_size):
+                chunk = group[start : start + chunk_size]
+                response = requests.post(
+                    f"{self.base}/issues?on_conflict=issue_key",
+                    headers=self.headers,
+                    json=chunk,
+                    timeout=120,
+                )
+                if not response.ok:
+                    detail = response.text[:500]
+                    raise RuntimeError(f"Erro Supabase issues ({response.status_code}): {detail}")
+                total += len(chunk)
+                log.info(f"OK - Enviadas {total}/{len(rows)} issues")
         return total
 
     def upsert_releases(self, rows: list[dict[str, Any]]) -> int:
@@ -230,6 +262,41 @@ class SupabaseSync:
         if not response.ok:
             detail = response.text[:500]
             raise RuntimeError(f"Erro Supabase gitlab_epics ({response.status_code}): {detail}")
+        return len(payload)
+
+    def upsert_gitlab_epic_issue_links(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        synced_at = _utc_now()
+        payload = []
+        for row in rows:
+            title = (row.get("epic_title") or "").strip()
+            if not title:
+                continue
+            payload.append(
+                {
+                    "gitlab_group_path": row.get("gitlab_group_path") or "comprasnet",
+                    "gitlab_repo": row["gitlab_repo"],
+                    "gitlab_iid": row["gitlab_iid"],
+                    "gitlab_epic_id": row.get("gitlab_epic_id"),
+                    "epic_title": title,
+                    "synced_at": synced_at,
+                    "updated_at": synced_at,
+                }
+            )
+        if not payload:
+            return 0
+        response = requests.post(
+            f"{self.base}/gitlab_epic_issue_links?on_conflict=gitlab_repo,gitlab_iid",
+            headers=self.headers,
+            json=payload,
+            timeout=120,
+        )
+        if not response.ok:
+            detail = response.text[:500]
+            raise RuntimeError(
+                f"Erro Supabase gitlab_epic_issue_links ({response.status_code}): {detail}"
+            )
         return len(payload)
 
     def upsert_gitlab_tipo_labels(self, rows: list[dict[str, Any]]) -> int:
@@ -420,6 +487,7 @@ def sync_issues_to_supabase(
     issues: list[dict[str, Any]] | None = None,
     *,
     json_path: Path | None = None,
+    repos: list[str] | None = None,
     include_releases: bool = True,
     include_epics: bool = True,
     include_tipo_labels: bool = True,
@@ -442,6 +510,7 @@ def sync_issues_to_supabase(
         issues = _load_issues_json(path)
 
     issues = _filter_issues_for_sync(issues)
+    issues = _filter_issues_by_repos(issues, repos)
     git_enabled = resolve_enable_git(enable_git)
     if enable_git and not git_enabled:
         log.warning(
@@ -449,6 +518,22 @@ def sync_issues_to_supabase(
             "Usando titulo/labels (sem detectores Git).",
         )
     log.info(f"OK - Processando {len(issues)} issues em memoria")
+
+    epic_rows: list[dict[str, Any]] = []
+    epic_links: list[dict[str, Any]] = []
+    if include_epics:
+        epic_rows = _prepare_epics_for_sync(issues)
+        if epic_rows:
+            filled, epic_links = aplicar_epicos_em_issues(
+                issues,
+                epic_rows,
+                token=_any_gitlab_token(),
+            )
+            if filled:
+                log.info(f"OK - {filled} issues enriquecidas com epico via catalogo do grupo")
+            if epic_links:
+                log.info(f"OK - {len(epic_links)} vinculos issue-epico obtidos do GitLab")
+
     raw_records = build_issue_records(issues, enable_git=git_enabled)
     synced_at = raw_records[0]["synced_at"] if raw_records else _utc_now()
     gitlab_users = collect_gitlab_users_from_records(raw_records, synced_at)
@@ -477,13 +562,26 @@ def sync_issues_to_supabase(
             release_count = client.upsert_releases(release_rows)
             log.info(f"OK - {release_count} releases sincronizadas")
         if include_epics:
-            epic_rows = _prepare_epics_for_sync(issues)
-            try:
-                epic_count = client.upsert_gitlab_epics(epic_rows)
-                log.info(f"OK - {epic_count} epicos sincronizados")
-            except Exception as exc:
-                # Migration ainda nao aplicada: nao bloqueia o sync de issues.
-                log.warning(f"AVISO - sync de epicos ignorado ({exc})")
+            if epic_rows:
+                try:
+                    epic_count = client.upsert_gitlab_epics(epic_rows)
+                    log.info(f"OK - {epic_count} epicos sincronizados")
+                except Exception as exc:
+                    log.warning(f"AVISO - sync do catalogo de epicos ignorado ({exc})")
+            if epic_links:
+                try:
+                    link_count = client.upsert_gitlab_epic_issue_links(epic_links)
+                    log.info(f"OK - {link_count} vinculos issue-epico sincronizados")
+                except Exception as exc:
+                    log.warning(
+                        "AVISO - sync de vinculos issue-epico ignorado "
+                        f"({exc}). Aplique a migration 063 no Supabase."
+                    )
+            elif epic_rows:
+                log.warning(
+                    "AVISO - nenhum vinculo issue-epico obtido. "
+                    "Verifique GITLAB_TOKEN ou atualize gitlab_issues_raw.json."
+                )
         if include_tipo_labels:
             tipo_rows = _prepare_tipo_labels_for_sync()
             try:
@@ -538,12 +636,20 @@ def main() -> int:
     parser.add_argument(
         "--sem-git",
         action="store_true",
-        help="Desativa detectores Git (area/tipo/dev) — usa apenas titulo/labels",
+        help="Desativa detectores Git (area/tipo/dev) - usa apenas titulo/labels",
+    )
+    parser.add_argument(
+        "--repo",
+        action="append",
+        metavar="SLUG",
+        choices=["contratos_v2", "contratos"],
+        help="sincroniza apenas este repositorio (pode repetir). Padrao: todos do JSON",
     )
     args = parser.parse_args()
 
     sync_issues_to_supabase(
         json_path=args.json,
+        repos=args.repo,
         include_releases=not args.sem_releases,
         include_epics=not args.sem_epicos,
         include_tipo_labels=not args.sem_tipos,

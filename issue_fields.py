@@ -37,7 +37,7 @@ MODULE_MAP: dict[str, str] = {
 # Colunas preenchidas manualmente no historico (Excel). NUNCA sao calculadas
 # aqui; ficam de fora dos registros para que o upsert no Supabase preserve o
 # valor existente em vez de sobrescrever com nulo.
-# Nota: `epico` deixou de ser manual — vem do GitLab (issue.epic / label / catalogo).
+# Nota: `epico` vem do GitLab (Parent GraphQL, label, issue.epic REST, catalogo).
 MANUAL_FIELDS = (
     "situacao_analise",
     "desenvolvedor_futuro",
@@ -144,9 +144,14 @@ def parse_labels(labels: list[str] | None) -> dict[str, str]:
 
 
 def extract_epico(issue: dict | None) -> str:
-    """Resolve o titulo do epico: label > objeto epic da API > vazio."""
+    """Resolve o titulo do epico: Parent > label > objeto epic da API > vazio."""
     if not issue:
         return ""
+    parent = issue.get("work_item_parent") or issue.get("parent")
+    if isinstance(parent, dict):
+        title = (parent.get("title") or "").strip()
+        if title:
+            return title
     labels = parse_labels(issue.get("labels") or [])
     if labels.get("epico"):
         return labels["epico"]

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timedelta
 
@@ -33,6 +34,9 @@ def parse_issue_datetime(date_str: str | None) -> datetime | None:
 
 
 def _closed_exclude_days() -> int:
+    raw = os.environ.get("MGI_CLOSED_EXCLUDE_DAYS")
+    if raw is not None and str(raw).strip() != "":
+        return int(raw)
     if config is not None and hasattr(config, "closed_exclude_days"):
         return config.closed_exclude_days()
     if config is not None:

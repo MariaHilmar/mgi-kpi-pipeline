@@ -91,10 +91,14 @@ projeto (`#1289`), não o ID global — e grava `gitlab_issues_raw.json`. També
 aciona `gitlab_epics.coletar_e_salvar_epicos` (catalogo do grupo). Requer
 `GITLAB_TOKEN` (global) ou tokens por repo. Detecta JSON sintético/de teste.
 
+> **Épicos no MGI:** na UI GitLab o vínculo é o **Parent** do work item. O sync
+> resolve via GraphQL em `gitlab_epics.py`. Ver [06-epicos-gitlab.md](06-epicos-gitlab.md).
+
 ### `gitlab_epics.py`
 Lista epicos do grupo (`GET /groups/:id/epics` → `gitlab_epics_raw.json`),
-enriquece issues filhas quando o vinculo nao veio no list de issues, e expoe
-helpers de mapeamento usados no sync (`public.gitlab_epics`).
+enriquece issues filhas quando o vinculo nao veio no list de issues, resolve
+**Parent** via GraphQL em lote e expoe helpers usados no sync
+(`public.gitlab_epics`, `gitlab_epic_issue_links`).
 
 ### `coleta_git_contratos.py`
 Classe `GitColeta`: executa `git log` / `git branch` / `git tag` em cada repo

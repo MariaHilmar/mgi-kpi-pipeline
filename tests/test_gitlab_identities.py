@@ -59,6 +59,38 @@ def test_prepare_issue_rows_strips_internal_fields():
     assert rows == [{"issue_key": "x", "autor": "Ana", "gitlab_author_id": 1}]
 
 
+def test_prepare_issue_rows_preserves_epico_vazio_no_payload():
+    rows = prepare_issue_rows_for_upsert(
+        [{"issue_key": "x", "epico": "", "autor": "Ana"}]
+    )
+    assert rows == [{"issue_key": "x", "autor": "Ana"}]
+
+    rows_with_epico = prepare_issue_rows_for_upsert(
+        [{"issue_key": "x", "epico": "[Modulo] Epico", "autor": "Ana"}]
+    )
+    assert rows_with_epico[0]["epico"] == "[Modulo] Epico"
+
+
+def test_prepare_issue_rows_preserves_mergeado_em_vazio():
+    rows = prepare_issue_rows_for_upsert(
+        [{"issue_key": "x", "mergeado_em": None, "autor": "Ana"}]
+    )
+    assert "mergeado_em" not in rows[0]
+
+
+def test_group_rows_by_postgrest_keys():
+    mixed = [
+        {"issue_key": "a", "autor": "Ana"},
+        {"issue_key": "b", "autor": "Bob", "epico": "Epico 1"},
+        {"issue_key": "c", "autor": "C"},
+    ]
+    from gitlab_identities import group_rows_by_postgrest_keys
+
+    groups = group_rows_by_postgrest_keys(mixed)
+    assert len(groups) == 2
+    assert {len(g) for g in groups} == {1, 2}
+
+
 def test_resolve_developer_by_email():
     dev_id, source = resolve_developer_gitlab_id(
         dev_author_email="dev@example.com",

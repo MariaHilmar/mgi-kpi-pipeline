@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 
 from atualizar_gitlab_issues import (
+    _get_gitlab_response,
     _mapear_issue_api,
     compute_sync_watermark,
     format_gitlab_datetime,
     index_issues_by_key,
     load_issues_list,
     merge_issues_into_index,
+    replace_repo_issues_in_index,
 )
 
 
@@ -140,3 +142,43 @@ def test_merge_empty_fetch_keeps_local():
     assert added == 0
     assert updated == 0
     assert len(indexed) == 1
+
+
+def test_replace_repo_issues_in_index():
+    indexed = index_issues_by_key(
+        [
+            {"id": "10", "gitlab_repo": "contratos_v2", "title": "v2"},
+            {"id": "20", "gitlab_repo": "contratos", "title": "v1 antiga"},
+        ]
+    )
+    fetched = [{"id": "21", "gitlab_repo": "contratos", "title": "v1 nova"}]
+    removed = replace_repo_issues_in_index(indexed, fetched, "contratos")
+    assert removed == 1
+    assert "contratos_v2:10" in indexed
+    assert "contratos:20" not in indexed
+    assert indexed["contratos:21"]["title"] == "v1 nova"
+
+
+def test_get_gitlab_response_retries_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    import requests
+
+    import atualizar_gitlab_issues as agi
+
+    calls = {"count": 0}
+
+    def fake_get(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise requests.exceptions.Timeout("timed out")
+        response = type("Resp", (), {})()
+        response.raise_for_status = lambda: None
+        response.json = lambda: []
+        return response
+
+    monkeypatch.setattr(agi, "DEFAULT_GITLAB_HTTP_RETRIES", 2)
+    monkeypatch.setattr(agi, "DEFAULT_GITLAB_HTTP_RETRY_DELAY", 0)
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    response = _get_gitlab_response("https://gitlab.com/api/v4/test", headers={}, params={})
+    assert response is not None
+    assert calls["count"] == 2

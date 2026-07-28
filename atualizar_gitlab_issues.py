@@ -25,10 +25,39 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+def _load_dotenv_early() -> None:
+    """Carrega .env antes de importar modulos que leem config."""
+    for path in (
+        Path(__file__).resolve().parent.parent / ".env",
+        Path.cwd() / ".env",
+        Path.cwd().parent / ".env",
+    ):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ[key] = value
+        return
+
+
+_load_dotenv_early()
+
 try:
     import config
 except ImportError:
     config = None
+
+from sync_supabase import _load_dotenv
+
+_load_dotenv()
 
 from gitlab_epics import coletar_e_salvar_epicos, mapear_epic_api
 from gitlab_merges import enriquecer_issues_com_merge_dates
@@ -50,6 +79,9 @@ MARCADORES_JSON_SINTETICO = (
 SYNC_STATE_FILENAME = "gitlab_issues_sync_state.json"
 DEFAULT_OVERLAP_SECONDS = int(os.environ.get("MGI_SYNC_OVERLAP_SECONDS", "120"))
 DEFAULT_BOOTSTRAP_DAYS = int(os.environ.get("MGI_SYNC_BOOTSTRAP_DAYS", "7"))
+DEFAULT_GITLAB_HTTP_TIMEOUT = int(os.environ.get("MGI_GITLAB_HTTP_TIMEOUT", "120"))
+DEFAULT_GITLAB_HTTP_RETRIES = int(os.environ.get("MGI_GITLAB_HTTP_RETRIES", "3"))
+DEFAULT_GITLAB_HTTP_RETRY_DELAY = float(os.environ.get("MGI_GITLAB_HTTP_RETRY_DELAY", "5"))
 
 
 def _output_path(output_file: str | None = None) -> Path:
@@ -122,11 +154,14 @@ def json_parece_sintetico(issues: list[dict]) -> bool:
 def _gitlab_token_for_repo(gitlab_repo: str) -> str:
     if config and hasattr(config, "gitlab_token_for_repo"):
         return config.gitlab_token_for_repo(gitlab_repo)
+    global_token = os.environ.get("GITLAB_TOKEN", "").strip()
+    if global_token:
+        return global_token
     by_repo = {
         "contratos_v2": os.environ.get("GITLAB_TOKEN_CONTRATOS_V2", ""),
         "contratos": os.environ.get("GITLAB_TOKEN_CONTRATOS", ""),
     }
-    return by_repo.get(gitlab_repo, "") or os.environ.get("GITLAB_TOKEN", "")
+    return by_repo.get(gitlab_repo, "").strip()
 
 
 def _tokens_configurados() -> list[str]:
@@ -221,6 +256,62 @@ def merge_issues_into_index(
     return added, updated
 
 
+def replace_repo_issues_in_index(
+    indexed: dict[str, dict],
+    fetched: list[dict],
+    gitlab_repo: str,
+) -> int:
+    """Substitui todas as issues de um repo no indice. Retorna quantas foram removidas."""
+    removed = 0
+    for key in list(indexed):
+        if indexed[key].get("gitlab_repo") == gitlab_repo:
+            del indexed[key]
+            removed += 1
+    merge_issues_into_index(indexed, fetched)
+    return removed
+
+
+def _gitlab_http_timeout() -> int:
+    return DEFAULT_GITLAB_HTTP_TIMEOUT
+
+
+def _gitlab_http_retries() -> int:
+    return max(1, DEFAULT_GITLAB_HTTP_RETRIES)
+
+
+def _gitlab_http_retry_delay() -> float:
+    return max(0.0, DEFAULT_GITLAB_HTTP_RETRY_DELAY)
+
+
+def _get_gitlab_response(url: str, *, headers: dict[str, str], params: dict[str, object]):
+    """GET na API GitLab com retry em timeout/conexao."""
+    import time
+
+    import requests
+
+    timeout = _gitlab_http_timeout()
+    retries = _gitlab_http_retries()
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+            if attempt >= retries:
+                break
+            wait = _gitlab_http_retry_delay() * attempt
+            log.warning(
+                f"AVISO - GitLab timeout/conexao (tentativa {attempt}/{retries}); "
+                f"retry em {wait:.0f}s..."
+            )
+            time.sleep(wait)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Falha ao consultar GitLab sem excecao capturada")
+
+
 def _buscar_issues_projeto(
     project_id: str,
     gitlab_repo: str,
@@ -229,8 +320,6 @@ def _buscar_issues_projeto(
     updated_after: datetime | None = None,
 ) -> list[dict]:
     """Busca issues de um projeto via API REST do GitLab."""
-    import requests
-
     gitlab_url = config.GITLAB_URL if config else os.environ.get("GITLAB_URL", "https://gitlab.com")
 
     headers = {"PRIVATE-TOKEN": gitlab_token}
@@ -241,19 +330,25 @@ def _buscar_issues_projeto(
 
     issues: list[dict] = []
     while True:
-        response = requests.get(url, headers=headers, params=params, timeout=60)
-        response.raise_for_status()
+        page = int(params["page"])
+        if page == 1 or page % 10 == 0:
+            log.info(f"      pagina {page} ({len(issues)} issues ate agora)...")
+        response = _get_gitlab_response(url, headers=headers, params=params)
         data = response.json()
         if not data:
             break
         for issue in data:
             issues.append(_mapear_issue_api(issue, gitlab_repo))
-        params["page"] = int(params["page"]) + 1
+        params["page"] = page + 1
 
     return issues
 
 
-def buscar_issues_gitlab(*, updated_after: datetime | None = None) -> list[dict]:
+def buscar_issues_gitlab(
+    *,
+    updated_after: datetime | None = None,
+    repos: list[str] | None = None,
+) -> list[dict]:
     """Busca issues de todos os projetos configurados (contratos_v2 + contratos)."""
     configured = _tokens_configurados()
     if not configured:
@@ -264,8 +359,16 @@ def buscar_issues_gitlab(*, updated_after: datetime | None = None) -> list[dict]
             "Gere tokens em https://gitlab.com/-/user_settings/personal_access_tokens"
         )
 
+    repo_filter = {repo.strip() for repo in (repos or []) if repo and repo.strip()}
+    if repo_filter:
+        unknown = sorted(repo_filter - {repo for _, repo in _gitlab_projects()})
+        if unknown:
+            raise ValueError(f"Repositorio(s) desconhecido(s): {', '.join(unknown)}")
+
     all_issues: list[dict] = []
     for project_id, repo_name in _gitlab_projects():
+        if repo_filter and repo_name not in repo_filter:
+            continue
         gitlab_token = _gitlab_token_for_repo(repo_name)
         if not gitlab_token:
             log.info(
@@ -358,9 +461,13 @@ def atualizar_issues(
     output_file: str | None = None,
     *,
     dry_run: bool = False,
+    repos: list[str] | None = None,
+    skip_merge_dates: bool = False,
+    skip_epicos: bool = False,
 ) -> bool:
     """Carga completa: substitui gitlab_issues_raw.json a partir da API GitLab."""
     destino = _output_path(output_file)
+    repo_filter = [repo.strip() for repo in (repos or []) if repo and repo.strip()]
 
     log.info("\n" + "=" * 70)
     log.info("ATUALIZADOR DE ISSUES - GitLab [MODO COMPLETO]")
@@ -370,7 +477,7 @@ def atualizar_issues(
         return False
 
     try:
-        issues = buscar_issues_gitlab()
+        fetched = buscar_issues_gitlab(repos=repo_filter or None)
     except ImportError:
         log.error("Erro: requests nao instalado. Execute: pip install requests")
         validar_json_local(destino)
@@ -379,6 +486,19 @@ def atualizar_issues(
         log.error(f"Erro ao conectar ao GitLab: {exc}")
         validar_json_local(destino)
         return False
+
+    if repo_filter and destino.exists():
+        indexed = index_issues_by_key(load_issues_list(destino))
+        for repo_name in repo_filter:
+            repo_issues = [issue for issue in fetched if issue.get("gitlab_repo") == repo_name]
+            removed = replace_repo_issues_in_index(indexed, repo_issues, repo_name)
+            log.info(
+                f"OK - Merge parcial: {repo_name} substituiu {removed} issues antigas "
+                f"por {len(repo_issues)} novas"
+            )
+        issues = list(indexed.values())
+    else:
+        issues = fetched
 
     by_repo: dict[str, int] = {}
     for issue in issues:
@@ -389,15 +509,31 @@ def atualizar_issues(
     for repo, count in sorted(by_repo.items()):
         log.info(f"     • {repo}: {count}")
 
-    issues, _ = _aplicar_filtro_fechadas(issues)
+    issues, excluidas = _aplicar_filtro_fechadas(issues)
+    if excluidas:
+        log.warning(
+            f"AVISO - {excluidas} issues fechadas excluidas do JSON "
+            f"(MGI_CLOSED_EXCLUDE_DAYS={os.environ.get('MGI_CLOSED_EXCLUDE_DAYS', '?')})"
+        )
+    else:
+        log.info(
+            f"OK - Filtro fechadas: nenhuma excluida "
+            f"(MGI_CLOSED_EXCLUDE_DAYS={os.environ.get('MGI_CLOSED_EXCLUDE_DAYS', '?')})"
+        )
+
+    if skip_epicos:
+        log.info("OK - Catalogo de epicos ignorado (--sem-epicos); use backfill apos sync")
+    else:
+        try:
+            coletar_e_salvar_epicos(issues=issues, dry_run=dry_run)
+        except Exception as exc:
+            log.warning(f"AVISO - falha ao coletar epicos do grupo: {exc}")
 
     try:
-        coletar_e_salvar_epicos(issues=issues, dry_run=dry_run)
-    except Exception as exc:
-        log.warning(f"AVISO - falha ao coletar epicos do grupo: {exc}")
-
-    try:
-        enriquecer_issues_com_merge_dates(issues)
+        if skip_merge_dates:
+            log.info("OK - Datas de merge ignoradas (--sem-merge-dates)")
+        else:
+            enriquecer_issues_com_merge_dates(issues, repos=repo_filter or None)
     except Exception as exc:
         log.warning(f"AVISO - falha ao coletar datas de merge: {exc}")
 
@@ -494,6 +630,45 @@ def atualizar_issues_incremental(
     return True
 
 
+def enriquecer_merge_dates_local(
+    output_file: str | None = None,
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """Preenche mergeado_em no JSON local para todas as issues com MR (todos os repos)."""
+    destino = _output_path(output_file)
+
+    log.info("\n" + "=" * 70)
+    log.info("ENRIQUECIMENTO - mergeado_em no JSON local")
+    log.info("=" * 70)
+
+    if not destino.exists():
+        log.error(f"ERRO: JSON local nao encontrado: {destino}")
+        return False
+
+    issues = load_issues_list(destino)
+    if not issues:
+        log.error("ERRO: JSON sem issues")
+        return False
+
+    log.info(
+        f"OK - {len(issues)} issues no JSON "
+        f"(MGI_CLOSED_EXCLUDE_DAYS={os.environ.get('MGI_CLOSED_EXCLUDE_DAYS', '?')})"
+    )
+    try:
+        filled = enriquecer_issues_com_merge_dates(issues, repos=None)
+    except Exception as exc:
+        log.error(f"Erro ao enriquecer mergeado_em: {exc}")
+        return False
+
+    if dry_run:
+        log.info(f"OK - Dry-run: {filled} issues teriam mergeado_em preenchido")
+        return True
+
+    _salvar_issues(destino, issues, mode="merge_dates", stats={"merge_dates_filled": filled})
+    return True
+
+
 def validar_json_local(json_path: Path | None = None) -> None:
     """Emite aviso se o JSON local parecer dados de teste."""
     path = json_path or _output_path()
@@ -521,6 +696,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python atualizar_gitlab_issues.py              # incremental (se JSON existir)\n"
             "  python atualizar_gitlab_issues.py -i           # incremental explicito\n"
             "  python atualizar_gitlab_issues.py --full       # carga completa\n"
+            "  python atualizar_gitlab_issues.py --full --repo contratos_v2\n"
+            "  python atualizar_gitlab_issues.py --full --repo contratos  # merge no JSON existente\n"
             "  python atualizar_gitlab_issues.py -i --since 2026-06-01T00:00:00Z\n"
             "  python atualizar_gitlab_issues.py -i --dry-run\n"
         ),
@@ -550,9 +727,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="caminho do JSON de saida (padrao: config.ISSUES_JSON)",
     )
     parser.add_argument(
+        "--repo",
+        action="append",
+        metavar="SLUG",
+        choices=["contratos_v2", "contratos"],
+        help="limita a sync a um repositorio (pode repetir). Com --full, faz merge no JSON existente",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="simula a sync sem gravar arquivos",
+    )
+    parser.add_argument(
+        "--sem-merge-dates",
+        action="store_true",
+        help="nao busca mergeado_em via API de MRs (evita timeouts em carga parcial)",
+    )
+    parser.add_argument(
+        "--enriquecer-merge-dates",
+        action="store_true",
+        help="apenas preenche mergeado_em no JSON local (todas as issues com MR)",
+    )
+    parser.add_argument(
+        "--sem-epicos",
+        action="store_true",
+        help="nao coleta epicos ao atualizar JSON (use backfill apos sync)",
     )
     return parser
 
@@ -562,11 +761,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     destino = _output_path(args.output)
 
-    if args.full:
-        success = atualizar_issues(args.output, dry_run=args.dry_run)
+    if args.enriquecer_merge_dates:
+        success = enriquecer_merge_dates_local(args.output, dry_run=args.dry_run)
+    elif args.full:
+        success = atualizar_issues(
+            args.output,
+            dry_run=args.dry_run,
+            repos=args.repo,
+            skip_merge_dates=args.sem_merge_dates,
+            skip_epicos=args.sem_epicos,
+        )
     elif args.incremental or destino.exists():
         if args.since and not args.incremental and not destino.exists():
             parser.error("--since requer sync incremental e JSON local existente")
+        if args.repo:
+            parser.error("--repo so e suportado com --full no momento")
         success = atualizar_issues_incremental(
             args.output,
             since=args.since,
@@ -574,7 +783,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         log.info("JSON local ausente — iniciando carga completa (--full)...")
-        success = atualizar_issues(args.output, dry_run=args.dry_run)
+        success = atualizar_issues(
+            args.output,
+            dry_run=args.dry_run,
+            repos=args.repo,
+            skip_merge_dates=args.sem_merge_dates,
+            skip_epicos=args.sem_epicos,
+        )
 
     return 0 if success else 1
 

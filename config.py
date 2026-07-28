@@ -172,11 +172,21 @@ _GITLAB_TOKEN_BY_REPO = {
 
 
 def gitlab_token_for_repo(repo_name: str) -> str:
-    """Token do GitLab para um repositorio, com fallback para GITLAB_TOKEN."""
-    specific = _GITLAB_TOKEN_BY_REPO.get(repo_name, "")
-    if specific:
-        return specific
-    return GITLAB_TOKEN
+    """Token do GitLab para um repositorio.
+
+    Prioridade: GITLAB_TOKEN global (vale para todos os repos); depois tokens
+    por repositorio (GITLAB_TOKEN_CONTRATOS_V2 / GITLAB_TOKEN_CONTRATOS).
+    """
+    global_token = os.environ.get("GITLAB_TOKEN", "").strip()
+    if global_token:
+        return global_token
+    specific_env = {
+        "contratos_v2": "GITLAB_TOKEN_CONTRATOS_V2",
+        "contratos": "GITLAB_TOKEN_CONTRATOS",
+    }.get(repo_name)
+    if specific_env:
+        return os.environ.get(specific_env, "").strip()
+    return ""
 
 
 def gitlab_tokens_configurados() -> list[str]:
@@ -207,6 +217,9 @@ def closed_exclude_days() -> int:
     """Dias para excluir issues fechadas; 0 = incluir todas (carga inicial)."""
     if INITIAL_LOAD:
         return 0
+    raw = os.environ.get("MGI_CLOSED_EXCLUDE_DAYS")
+    if raw is not None and str(raw).strip() != "":
+        return int(raw)
     return CLOSED_EXCLUDE_DAYS
 
 
