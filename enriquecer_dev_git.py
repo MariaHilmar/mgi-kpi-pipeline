@@ -37,6 +37,7 @@ except ImportError:
     def wsl_path_for_repo(repo):
         return "/root/MGI/contratos_v2" if repo == "contratos_v2" else "/root/MGI/contratos"
 
+
 DEFAULT_WSL_REPO = "/root/MGI/contratos_v2"
 DEFAULT_BASE_BRANCH = "master"
 

@@ -19,7 +19,9 @@ Grupos de colunas:
   `repositorio`, `titulo`.
 - **Taxonomia:** `modulo`, `modulo_normalizado`, `area_funcional`, `tipo`.
 - **Estado/labels:** `estado`, `status`, `prioridade`, `equipe`, `parceria`,
-  `sprint`, `assignee`, `autor`, `solicitante`, `alteracao_escopo`.
+  `epico`, `sprint`, `assignee`, `autor`, `solicitante`, `alteracao_escopo`.
+  O `epico` vem do vinculo GitLab (`issue.epic.title`), label `Épico::`/`Epico::`
+  ou enriquecimento via issues filhas do catalogo de epicos do grupo.
 - **Identidades GitLab:** `gitlab_author_id`, `gitlab_assignee_ids`,
   `gitlab_developer_id` (denormalizados; espelhados em `issue_participants`).
 - **Datas/SLA:** `criado_em`, `fechado_em`, `lead_time_dias`, `ano_mes_criacao`,
@@ -31,8 +33,13 @@ Grupos de colunas:
 - **Qualidade:** `categoria`, `modulo_ok`, `area_ok`, `padrao_titulo`,
   `padrao_completo`, `confianca_area`.
 - **Manuais (NÃO enviados pelo sync):** `situacao_analise`,
-  `desenvolvedor_futuro`, `observacao_geral`, `chamado`, `priorizar`, `epico` —
+  `desenvolvedor_futuro`, `observacao_geral`, `chamado`, `priorizar` —
   preenchidos diretamente no Supabase e preservados pelo upsert.
+
+### `public.gitlab_epics`
+Catalogo de epicos do grupo GitLab (`GITLAB_GROUP_PATH`, padrao `comprasnet`).
+Upsert a cada sync; alimenta as opcoes do filtro **Épico** em
+`v_filter_options_full` (union com `issues.epico`).
 
 ### `public.gitlab_users`
 Identidades GitLab (`id`, `username`, `name`, `email`). Upsert a cada sync.
