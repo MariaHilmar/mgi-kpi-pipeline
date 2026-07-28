@@ -105,6 +105,7 @@ def test_enriquecer_issues_com_epicos(monkeypatch):
         return [{"id": 100, "iid": 10}, {"id": 999, "iid": 99}]
 
     monkeypatch.setattr("gitlab_epics._buscar_issues_do_epico", fake_children)
+    monkeypatch.setattr("gitlab_epics._any_gitlab_token", lambda: "test-token")
     filled = enriquecer_issues_com_epicos(issues, epics)
     assert filled == 1
     assert issues[0]["epic"]["title"] == "Epico Novo"
@@ -135,6 +136,7 @@ def test_aplicar_epicos_em_issues_retorna_vinculos(monkeypatch):
         ]
 
     monkeypatch.setattr("gitlab_epics._buscar_issues_do_epico", fake_children)
+    monkeypatch.setattr("gitlab_epics._any_gitlab_token", lambda: "test-token")
     filled, links = aplicar_epicos_em_issues(issues, epics)
     assert filled == 1
     assert len(links) == 1

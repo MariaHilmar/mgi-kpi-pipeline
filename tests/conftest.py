@@ -14,6 +14,10 @@ _RUNTIME_ENV_VARS = (
     "MGI_INITIAL_LOAD",
     "MGI_ALL_MODULES",
     "MGI_REFRESH_MODE",
+    # Tokens: testes devem ser herméticos (mockar token), não usar o .env do dev.
+    "GITLAB_TOKEN",
+    "GITLAB_TOKEN_CONTRATOS_V2",
+    "GITLAB_TOKEN_CONTRATOS",
 )
 _CONFIG_DEFAULTS = {
     "INITIAL_LOAD": False,
