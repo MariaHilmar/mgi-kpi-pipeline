@@ -20,7 +20,7 @@ def test_run_git_remove_prefixo_git():
     coleta = cgc.GitColeta("<path-contratos>", "contratos")
 
     with patch.object(coleta, "_run_git", return_value="ok") as mock_run:
-        assert coleta.run_git('git status -sb') == "ok"
+        assert coleta.run_git("git status -sb") == "ok"
         mock_run.assert_called_once_with("status -sb", timeout=30)
 
 

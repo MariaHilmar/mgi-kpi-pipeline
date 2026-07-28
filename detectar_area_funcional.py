@@ -28,17 +28,22 @@ except ImportError:
 try:
     from issue_keys import get_gitlab_repo, wsl_path_for_repo
 except ImportError:
+
     def get_gitlab_repo(issue):
         return issue.get("gitlab_repo") or "contratos_v2"
 
     def wsl_path_for_repo(repo):
         return "/root/MGI/contratos_v2" if repo == "contratos_v2" else "/root/MGI/contratos"
 
+
 DEFAULT_WSL_REPO = "/root/MGI/contratos_v2"
 DEFAULT_BASE_BRANCH = "master"
 
 FILE_AREA_RULES: Sequence[tuple[str, str]] = (
-    (r"InstrumentoCobranca|instrumento.?cobranca|InstrumentoCobrancaService|/ic[/\"']", "Instrumento de Cobrança"),
+    (
+        r"InstrumentoCobranca|instrumento.?cobranca|InstrumentoCobrancaService|/ic[/\"']",
+        "Instrumento de Cobrança",
+    ),
     (r"TermoRecebimentoDefinitivo|/trd[/\"']|TRDCrud", "TRD"),
     (r"TermoRecebimentoProvisorio|/trp[/\"']|TRPCrud", "TRP"),
     (r"PlanoFiscalizacaoVerificacao|verificacao.*plano|plf_item", "Verificações PF"),
@@ -434,6 +439,7 @@ def _infer_area_from_module(title: str) -> str | None:
         return MODULE_TO_AREA[module]
     normalized = re.sub(r"\s+", " ", module.casefold())
     return _MODULE_ALIASES.get(normalized)
+
 
 def _infer_default_area_from_canonical_module(title: str) -> str | None:
     """Retorna área padrão quando o módulo canônico está claro no título.
