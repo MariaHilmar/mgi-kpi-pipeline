@@ -101,37 +101,63 @@ MODULE_TAG_CATEGORIES: dict[str, str] = {
 
 # Tags que nao sao modulos funcionais — meta/tecnicas/typos graves.
 # Vao para CUSTOM_BUCKET em vez de tentar mapear para um canonico.
-NON_MODULE_TAGS: frozenset[str] = frozenset({
-    "bug", "erro log",
-    "Test", "test", "teste",
-    "Dashboard", "dashboard",
-    "RSS", "rss",
-    "telegram", "Telegram",
-    "sirius", "Julius", "Comunica", "comunica",
-    "CI", "ci",
-    "V2", "v2", "Tabela V1",
-    "Discussão", "discussao",
-    "Página Inicial", "pagina inicial",
-    "Usabilidade", "usabilidade",
-    "devops", "DevOps",
-    "Rancher", "rancher",
-    "Performance", "Perfomance",  # typo de Performance
-    "Sistema",
-    "Base",
-    "livre", "Livre", "LIVRE",
-    "Otimização",
-    "Filtros",
-    "Relatório", "Relatórios", "Relatorio",
-    "Documentos",
-    "Arquivos",
-    "Publicação", "Publicações",
-    "E-mail", "email",
-    "Dependentes",
-    "Responsáveis",
-    "Reajuste",
-    "Termos",
-    "Termo",
-})
+NON_MODULE_TAGS: frozenset[str] = frozenset(
+    {
+        "bug",
+        "erro log",
+        "Test",
+        "test",
+        "teste",
+        "Dashboard",
+        "dashboard",
+        "RSS",
+        "rss",
+        "telegram",
+        "Telegram",
+        "sirius",
+        "Julius",
+        "Comunica",
+        "comunica",
+        "CI",
+        "ci",
+        "V2",
+        "v2",
+        "Tabela V1",
+        "Discussão",
+        "discussao",
+        "Página Inicial",
+        "pagina inicial",
+        "Usabilidade",
+        "usabilidade",
+        "devops",
+        "DevOps",
+        "Rancher",
+        "rancher",
+        "Performance",
+        "Perfomance",  # typo de Performance
+        "Sistema",
+        "Base",
+        "livre",
+        "Livre",
+        "LIVRE",
+        "Otimização",
+        "Filtros",
+        "Relatório",
+        "Relatórios",
+        "Relatorio",
+        "Documentos",
+        "Arquivos",
+        "Publicação",
+        "Publicações",
+        "E-mail",
+        "email",
+        "Dependentes",
+        "Responsáveis",
+        "Reajuste",
+        "Termos",
+        "Termo",
+    }
+)
 
 # Variacoes de titulo -> modulo canonico (12 canonicos fixos)
 MODULE_ALIASES: dict[str, str] = {
@@ -155,7 +181,7 @@ MODULE_ALIASES: dict[str, str] = {
     "CONTRATOS": "Gestão Contratual",
     "Instrumento Inicial": "Gestão Contratual",
     "Instrumento inicial": "Gestão Contratual",
-    "Instrumento Incial": "Gestão Contratual",   # typo recorrente
+    "Instrumento Incial": "Gestão Contratual",  # typo recorrente
     "OS/F": "Gestão Contratual",
     "OSF": "Gestão Contratual",
     "Ordem de Serviço": "Gestão Contratual",
@@ -178,18 +204,18 @@ MODULE_ALIASES: dict[str, str] = {
     "Contrato e Instrumento Inicial": "Gestão Contratual",
     "Fiscalização e Gestão": "Gestão Contratual",
     "Fiscalização e Gestão de Contratos": "Gestão Contratual",
-    "Fornecedor": "Fornecedor",             # sem alias, mas garantir sem colapso
+    "Fornecedor": "Fornecedor",  # sem alias, mas garantir sem colapso
     # --- Administração ---
     "Compras": "Administração",
     "Compra": "Administração",
     "CompraService": "Administração",
-    "Compr": "Administração",              # typo de Compra
+    "Compr": "Administração",  # typo de Compra
     "admin": "Administração",
     "administração": "Administração",
-    "Admnistração": "Administração",       # typo recorrente
+    "Admnistração": "Administração",  # typo recorrente
     "Acesso": "Administração",
     "Login": "Administração",
-    "BD": "Jobs",                           # Banco de Dados → infraestrutura
+    "BD": "Jobs",  # Banco de Dados → infraestrutura
     "Banco de Dados": "Jobs",
     "Unidades": "Administração",
     "Unidades Descentralizadas": "Administração",
@@ -222,7 +248,7 @@ MODULE_ALIASES: dict[str, str] = {
     "Autorização de execução": "Fiscalização",
     # --- PNCP ---
     "pncp": "PNCP",
-    "PNPC": "PNCP",                        # typo recorrente
+    "PNPC": "PNCP",  # typo recorrente
     # --- Transparência ---
     "Transparencia": "Transparência",
     "transparência": "Transparência",
@@ -477,6 +503,5 @@ TITLE_PATTERN_BASIC = re.compile(
 )
 
 _ALL_STANDARD_AREAS: frozenset[str] = frozenset(
-    list(GLOBAL_STANDARD_AREAS)
-    + [a for areas in STANDARD_AREAS_BY_MODULE.values() for a in areas]
+    list(GLOBAL_STANDARD_AREAS) + [a for areas in STANDARD_AREAS_BY_MODULE.values() for a in areas]
 )

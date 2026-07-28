@@ -24,11 +24,13 @@ except ImportError:
 try:
     from issue_keys import get_gitlab_repo, wsl_path_for_repo
 except ImportError:
+
     def get_gitlab_repo(issue):
         return issue.get("gitlab_repo") or "contratos_v2"
 
     def wsl_path_for_repo(repo):
         return "/root/MGI/contratos_v2" if repo == "contratos_v2" else "/root/MGI/contratos"
+
 
 DEFAULT_WSL_REPO = "/root/MGI/contratos_v2"
 
@@ -152,17 +154,13 @@ class TipoIssueDetector:
 
         for branch in branches:
             branch_ref = branch if branch.startswith("origin/") else f"origin/{branch}"
-            output = self._run_git(
-                f"log {branch_ref} --format=%s -n 80 2>/dev/null"
-            )
+            output = self._run_git(f"log {branch_ref} --format=%s -n 80 2>/dev/null")
             messages.extend(line.strip() for line in output.splitlines() if line.strip())
 
             merge_output = self._run_git(
                 f"log --all --grep='Merge branch .{issue_id}-' -n 5 --format=%s 2>/dev/null"
             )
-            messages.extend(
-                line.strip() for line in merge_output.splitlines() if line.strip()
-            )
+            messages.extend(line.strip() for line in merge_output.splitlines() if line.strip())
 
         unique = list(dict.fromkeys(messages))
         self._commits_cache[issue_id] = unique
