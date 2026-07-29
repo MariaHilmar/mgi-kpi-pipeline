@@ -990,6 +990,8 @@ def aplicar_epicos_em_issues(
     epics: list[dict[str, Any]],
     *,
     token: str | None = None,
+    api_scope: list[dict[str, Any]] | None = None,
+    skip_heavy_api: bool = False,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Preenche issue.epic e devolve linhas para gitlab_epic_issue_links."""
     filled = 0
@@ -1017,8 +1019,19 @@ def aplicar_epicos_em_issues(
     )
     filled += children_filled
 
+    scope_for_api = api_scope if api_scope is not None else issues
+    if api_scope is not None and len(scope_for_api) < len(issues):
+        log.info(
+            "OK - GraphQL/REST de epicos limitado a %d issues (de %d no lote)",
+            len(scope_for_api),
+            len(issues),
+        )
+
+    if skip_heavy_api:
+        return filled, links
+
     parent_filled, parent_links = enriquecer_epicos_via_parent_hierarchy(
-        issues, token=auth or None
+        scope_for_api, token=auth or None
     )
     filled += parent_filled
     for link_row in parent_links:
@@ -1028,7 +1041,9 @@ def aplicar_epicos_em_issues(
         seen_links.add(key)
         links.append(link_row)
 
-    extra_filled, extra_links = enriquecer_epicos_via_projetos(issues, token=auth or None)
+    extra_filled, extra_links = enriquecer_epicos_via_projetos(
+        scope_for_api, token=auth or None
+    )
     filled += extra_filled
     for link_row in extra_links:
         key = (link_row["gitlab_repo"], link_row["gitlab_iid"])
@@ -1142,13 +1157,21 @@ def enriquecer_issues_com_epicos(
     epics: list[dict[str, Any]],
     *,
     token: str | None = None,
+    api_scope: list[dict[str, Any]] | None = None,
+    skip_heavy_api: bool = False,
 ) -> int:
     """Preenche `issue.epic` a partir das issues filhas de cada epico do grupo.
 
     Util quando o list/get de issues nao traz `epic`, mas o vinculo existe no
     endpoint de epicos. Retorna quantas issues receberam epico.
     """
-    filled, _links = aplicar_epicos_em_issues(issues, epics, token=token)
+    filled, _links = aplicar_epicos_em_issues(
+        issues,
+        epics,
+        token=token,
+        api_scope=api_scope,
+        skip_heavy_api=skip_heavy_api,
+    )
     return filled
 
 
@@ -1177,13 +1200,20 @@ def coletar_e_salvar_epicos(
     *,
     issues: list[dict[str, Any]] | None = None,
     dry_run: bool = False,
+    api_scope: list[dict[str, Any]] | None = None,
+    skip_heavy_api: bool = False,
 ) -> list[dict[str, Any]]:
     """Busca epicos do grupo, opcionalmente enriquece issues e grava JSON."""
     log.info(f"OK - Buscando epicos do grupo {group_path()}...")
     epics = buscar_epicos_grupo()
     log.info(f"OK - {len(epics)} epicos obtidos")
     if issues is not None:
-        filled = enriquecer_issues_com_epicos(issues, epics)
+        filled = enriquecer_issues_com_epicos(
+            issues,
+            epics,
+            api_scope=api_scope,
+            skip_heavy_api=skip_heavy_api,
+        )
         if filled:
             log.info(f"OK - {filled} issues enriquecidas com epico via catalogo do grupo")
         else:

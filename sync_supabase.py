@@ -29,6 +29,7 @@ from gitlab_epics import (
     carregar_epicos,
     coletar_e_salvar_epicos,
     epics_json_path,
+    vinculos_epico_de_issues_json,
 )
 from gitlab_identities import (
     build_participant_rows,
@@ -483,6 +484,22 @@ def _prepare_tipo_labels_for_sync() -> list[dict[str, Any]]:
         return []
 
 
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in ("1", "true", "yes")
+
+
+def _epic_links_from_json(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for link_row in vinculos_epico_de_issues_json(issues):
+        key = (link_row["gitlab_repo"], link_row["gitlab_iid"])
+        if key in seen:
+            continue
+        seen.add(key)
+        links.append(link_row)
+    return links
+
+
 def sync_issues_to_supabase(
     issues: list[dict[str, Any]] | None = None,
     *,
@@ -521,18 +538,27 @@ def sync_issues_to_supabase(
 
     epic_rows: list[dict[str, Any]] = []
     epic_links: list[dict[str, Any]] = []
+    skip_epic_api = _env_truthy("MGI_SKIP_EPIC_API") or _env_truthy("MGI_PIPELINE_SCHEDULED")
     if include_epics:
         epic_rows = _prepare_epics_for_sync(issues)
         if epic_rows:
-            filled, epic_links = aplicar_epicos_em_issues(
-                issues,
-                epic_rows,
-                token=_any_gitlab_token(),
-            )
-            if filled:
-                log.info(f"OK - {filled} issues enriquecidas com epico via catalogo do grupo")
-            if epic_links:
-                log.info(f"OK - {len(epic_links)} vinculos issue-epico obtidos do GitLab")
+            if skip_epic_api:
+                epic_links = _epic_links_from_json(issues)
+                if epic_links:
+                    log.info(
+                        "OK - %d vinculos issue-epico do JSON (API de epicos omitida no sync)",
+                        len(epic_links),
+                    )
+            else:
+                filled, epic_links = aplicar_epicos_em_issues(
+                    issues,
+                    epic_rows,
+                    token=_any_gitlab_token(),
+                )
+                if filled:
+                    log.info(f"OK - {filled} issues enriquecidas com epico via catalogo do grupo")
+                if epic_links:
+                    log.info(f"OK - {len(epic_links)} vinculos issue-epico obtidos do GitLab")
 
     raw_records = build_issue_records(issues, enable_git=git_enabled)
     synced_at = raw_records[0]["synced_at"] if raw_records else _utc_now()

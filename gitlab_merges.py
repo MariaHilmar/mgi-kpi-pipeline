@@ -181,11 +181,22 @@ def merged_at_for_issue(
     return None
 
 
+def _has_mergeado_em(issue: dict) -> bool:
+    value = issue.get("mergeado_em")
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
 def enriquecer_issues_com_merge_dates(
     issues: list[dict[str, Any]],
     *,
     token: str | None = None,
     repos: list[str] | None = None,
+    only_issues: list[dict[str, Any]] | None = None,
+    skip_if_present: bool = True,
 ) -> int:
     """Preenche `issue['mergeado_em']` para issues com MR. Retorna quantas foram preenchidas."""
     import os
@@ -200,14 +211,22 @@ def enriquecer_issues_com_merge_dates(
     retry_delay = float(os.environ.get("MGI_GITLAB_HTTP_RETRY_DELAY", "5"))
     workers = max(1, min(int(os.environ.get("MGI_GITLAB_MERGE_WORKERS", "10")), 30))
 
+    source = only_issues if only_issues is not None else issues
     candidatas = []
-    for issue in issues:
+    skipped = 0
+    for issue in source:
         if _mr_count(issue) <= 0 or _iid_of(issue) is None:
+            continue
+        if skip_if_present and _has_mergeado_em(issue):
+            skipped += 1
             continue
         repo = _normalize_repo(issue.get("gitlab_repo") or "contratos_v2")
         if repo_filter and repo not in repo_filter:
             continue
         candidatas.append(issue)
+
+    if skipped:
+        log.info("OK - %d issues com mergeado_em ja preenchido (puladas)", skipped)
 
     log.info(
         "OK - Buscando datas de merge de %d issues com MR (%d workers)...",

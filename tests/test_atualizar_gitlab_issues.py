@@ -10,6 +10,7 @@ import pytest
 
 from atualizar_gitlab_issues import (
     _get_gitlab_response,
+    _issues_para_enriquecer_merge,
     _mapear_issue_api,
     compute_sync_watermark,
     format_gitlab_datetime,
@@ -182,3 +183,15 @@ def test_get_gitlab_response_retries_timeout(monkeypatch: pytest.MonkeyPatch) ->
     response = _get_gitlab_response("https://gitlab.com/api/v4/test", headers={}, params={})
     assert response is not None
     assert calls["count"] == 2
+
+
+def test_issues_para_enriquecer_merge_somente_alteradas_ou_sem_data():
+    merged = [
+        {"id": "1", "gitlab_repo": "contratos_v2", "mergeado_em": "2026-01-01T00:00:00Z"},
+        {"id": "2", "gitlab_repo": "contratos_v2"},
+        {"id": "3", "gitlab_repo": "contratos_v2", "mergeado_em": "2026-02-01T00:00:00Z"},
+    ]
+    changed = [{"id": "3", "gitlab_repo": "contratos_v2"}]
+    scope = _issues_para_enriquecer_merge(merged, changed_issues=changed)
+    ids = {issue["id"] for issue in scope}
+    assert ids == {"2", "3"}

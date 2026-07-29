@@ -256,6 +256,23 @@ def merge_issues_into_index(
     return added, updated
 
 
+def _issues_para_enriquecer_merge(
+    merged: list[dict],
+    *,
+    changed_issues: list[dict],
+) -> list[dict]:
+    """Subset que precisa consultar mergeado_em: alteradas ou ainda sem data."""
+    changed_keys = {make_issue_key(issue) for issue in changed_issues if make_issue_key(issue)}
+    selected: list[dict] = []
+    for issue in merged:
+        key = make_issue_key(issue)
+        if not key:
+            continue
+        if key in changed_keys or not (issue.get("mergeado_em") or "").strip():
+            selected.append(issue)
+    return selected
+
+
 def replace_repo_issues_in_index(
     indexed: dict[str, dict],
     fetched: list[dict],
@@ -550,6 +567,8 @@ def atualizar_issues_incremental(
     *,
     since: str | None = None,
     dry_run: bool = False,
+    skip_merge_dates: bool = False,
+    skip_epicos: bool = False,
 ) -> bool:
     """Sync incremental: novas issues + alteracoes desde a ultima sync (merge local)."""
     destino = _output_path(output_file)
@@ -600,12 +619,29 @@ def atualizar_issues_incremental(
         log.info(f"OK - {removed_old_closed} issues removidas do JSON por filtro de fechadas")
 
     try:
-        coletar_e_salvar_epicos(issues=merged, dry_run=dry_run)
+        if skip_epicos:
+            log.info("OK - Epicos ignorados (--sem-epicos)")
+        else:
+            coletar_e_salvar_epicos(
+                issues=merged,
+                dry_run=dry_run,
+                api_scope=fetched,
+            )
     except Exception as exc:
         log.warning(f"AVISO - falha ao coletar epicos do grupo: {exc}")
 
     try:
-        enriquecer_issues_com_merge_dates(merged)
+        if skip_merge_dates:
+            log.info("OK - Datas de merge ignoradas (--sem-merge-dates)")
+        else:
+            merge_scope = _issues_para_enriquecer_merge(merged, changed_issues=fetched)
+            log.info(
+                "OK - Enriquecimento mergeado_em: %d issues candidatas "
+                "(alteradas ou sem data, de %d no JSON)",
+                len(merge_scope),
+                len(merged),
+            )
+            enriquecer_issues_com_merge_dates(merged, only_issues=merge_scope)
     except Exception as exc:
         log.warning(f"AVISO - falha ao coletar datas de merge: {exc}")
 
@@ -780,6 +816,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output,
             since=args.since,
             dry_run=args.dry_run,
+            skip_merge_dates=args.sem_merge_dates,
+            skip_epicos=args.sem_epicos,
         )
     else:
         log.info("JSON local ausente — iniciando carga completa (--full)...")
