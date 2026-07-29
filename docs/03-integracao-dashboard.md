@@ -1,6 +1,6 @@
 # Integração com o dashboard
 
-O pipeline e o [`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard)
+O pipeline e o [`kpi-dashboard`](https://github.com/MariaHilmar/kpi-dashboard)
 **não se comunicam diretamente**: o contrato entre eles é o **schema do Supabase**
 (versionado em `../supabase/migrations`). O pipeline escreve; o dashboard lê.
 
@@ -98,7 +98,7 @@ O frontend nunca varre a tabela bruta; usa objetos versionados nas migrations:
 ## Identidades e perfis (migration 012)
 
 O dashboard relaciona usuários logados às issues via `profiles.gitlab_user_id`.
-Documentação completa: `mgi-kpi-dashboard/docs/10-identidades-gitlab.md`.
+Documentação completa: `kpi-dashboard/docs/10-identidades-gitlab.md`.
 
 Fluxo resumido após aplicar migrations:
 

@@ -1,14 +1,19 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Agenda pull condicional nos repos contratos* (WSL):
-    terca e quinta as 09:00.
+    Agenda pull condicional nos repos contratos* (WSL): mensal, dia 1 as 09:00.
+
+.PARAMETER Frequency
+    "Monthly" (padrao) ou "Weekly".
 
 .PARAMETER Time
     Horario (HH:mm). Padrao: 09:00.
 
+.PARAMETER DayOfMonth
+    Dia do mes (Frequency=Monthly). Padrao: 1.
+
 .PARAMETER DaysOfWeek
-    Dias da semana. Padrao: Tuesday, Thursday.
+    Dias da semana (Frequency=Weekly). Padrao: Tuesday, Thursday.
 
 .PARAMETER Test
     Executa executar_pull_repos.bat apos criar/atualizar a tarefa.
@@ -17,7 +22,11 @@
     Substitui a tarefa existente sem perguntar.
 #>
 param(
+    [ValidateSet("Monthly", "Weekly")]
+    [string]$Frequency = "Monthly",
     [string]$Time = "09:00",
+    [ValidateRange(1, 28)]
+    [int]$DayOfMonth = 1,
     [ValidateSet("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")]
     [System.DayOfWeek[]]$DaysOfWeek = @([System.DayOfWeek]::Tuesday, [System.DayOfWeek]::Thursday),
     [switch]$Test,
@@ -49,11 +58,12 @@ $WORKSPACE_DIR = Split-Path -Parent $PSScriptRoot
 $BATCH_FILE = Join-Path $WORKSPACE_DIR "executar_pull_repos.bat"
 $TASK_NAME = "MGI-Pull-Repos-Main"
 $RUN_AS_USER = "$env:USERDOMAIN\$env:USERNAME"
-$dayLabels = ($DaysOfWeek | ForEach-Object { $_.ToString() }) -join ", "
+$dayLabels = if ($Frequency -eq "Monthly") { "dia $DayOfMonth de cada mes" } else { ($DaysOfWeek | ForEach-Object { $_.ToString() }) -join ", " }
 
 Write-Host "Workspace:  $WORKSPACE_DIR"
 Write-Host "Script:     executar_pull_repos.bat"
 Write-Host "Tarefa:     $TASK_NAME"
+Write-Host "Frequencia: $Frequency"
 Write-Host "Horario:    $Time"
 Write-Host "Dias:       $dayLabels"
 Write-Host "Fluxo:      fetch + detecta branch (origin/HEAD / master) + pull --ff-only se remoto a frente"
@@ -85,7 +95,11 @@ $action = New-ScheduledTaskAction `
     -Argument "/c `"$BATCH_FILE`"" `
     -WorkingDirectory $WORKSPACE_DIR
 
-$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DaysOfWeek -At $Time
+$trigger = if ($Frequency -eq "Monthly") {
+    New-ScheduledTaskTrigger -Monthly -DaysOfMonth $DayOfMonth -At $Time
+} else {
+    New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DaysOfWeek -At $Time
+}
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -106,7 +120,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Pull condicional nos repos contratos* (ter/qui 09:00; branch origin/HEAD)" `
+    -Description "Pull condicional nos repos contratos* ($dayLabels $Time; branch origin/HEAD)" `
     -Force | Out-Null
 
 Write-Host ""

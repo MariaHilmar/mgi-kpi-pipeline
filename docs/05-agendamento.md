@@ -32,7 +32,7 @@ Pull condicional dos repos Git (ter/qui): `executar_pull_repos.bat` (tarefa `MGI
 Ou via PowerShell (admin):
 
 ```powershell
-cd D:\mgi-workspace\mgi-kpi-pipeline
+cd D:\mgi-workspace\kpi-pipeline
 .\agendar_task_scheduler.ps1 -Time "08:10" -Force -Test
 ```
 

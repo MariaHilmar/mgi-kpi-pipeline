@@ -1,8 +1,8 @@
 # Repositório canônico — GitHub
 
-O **código-fonte** do `mgi-kpi-pipeline` vive no GitHub:
+O **código-fonte** do `kpi-pipeline` vive no GitHub:
 
-**https://github.com/MariaHilmar/mgi-kpi-pipeline**
+**https://github.com/MariaHilmar/kpi-pipeline**
 
 Commits, pull requests, issues e releases do **projeto** devem ser tratados apenas nesse repositório.
 
@@ -11,7 +11,7 @@ Commits, pull requests, issues e releases do **projeto** devem ser tratados apen
 | Uso | O que é |
 |-----|---------|
 | **API GitLab** (`comprasnet/contratos_v2`, etc.) | Fonte de **dados** (issues, commits) — configurada via `GITLAB_TOKEN` no `.env` |
-| **GitLab `mariahilmar-group/mgi-kpi-pipeline`** | Cópia espelhada **opcional** — **não** é o repositório do projeto |
+| **GitLab `mariahilmar-group/kpi-pipeline`** | Cópia espelhada **opcional** — **não** é o repositório do projeto |
 
 O workflow de espelhamento GitHub → GitLab foi **removido** para evitar checks falhos no GitHub e para deixar claro que o GitHub é a única origem do código.
 
@@ -28,9 +28,9 @@ Se ainda existir uma cópia no GitLab, pode ser arquivada ou ignorada; não é n
 Se o seu clone ainda aponta para o GitLab como `origin`, alinhe ao GitHub:
 
 ```powershell
-cd D:\mgi-workspace\mgi-kpi-pipeline
+cd D:\mgi-workspace\kpi-pipeline
 git remote -v
-git remote set-url origin https://github.com/MariaHilmar/mgi-kpi-pipeline.git
+git remote set-url origin https://github.com/MariaHilmar/kpi-pipeline.git
 # Opcional: manter GitLab como remote secundário
-git remote add gitlab https://gitlab.com/mariahilmar-group/mgi-kpi-pipeline.git 2>$null
+git remote add gitlab https://gitlab.com/mariahilmar-group/kpi-pipeline.git 2>$null
 ```

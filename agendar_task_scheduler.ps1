@@ -3,8 +3,9 @@
 .SYNOPSIS
     Agenda execucao diaria do pipeline MGI (GitLab -> Supabase) no Task Scheduler.
 
-.PARAMETER Time
-    Horario diario no formato HH:mm (padrao 08:10).
+.PARAMETER Times
+    Horarios diarios no formato HH:mm (padrao 08:00, 11:00, 15:00, 18:00).
+    Cria um trigger por horario na mesma tarefa.
 
 .PARAMETER Test
     Executa executar_pipeline_silent.bat apos criar/atualizar a tarefa.
@@ -13,7 +14,7 @@
     Substitui a tarefa existente sem perguntar.
 #>
 param(
-    [string]$Time = "08:10",
+    [string[]]$Times = @("08:00", "11:00", "15:00", "18:00"),
     [switch]$Test,
     [switch]$Force
 )
@@ -28,7 +29,7 @@ $colors = @{
 
 Write-Host ""
 Write-Host "================================================================"
-Write-Host " AGENDAMENTO - MGI KPI Pipeline (GitLab -> Supabase)"
+Write-Host " AGENDAMENTO - KPI Pipeline (GitLab -> Supabase)"
 Write-Host "================================================================"
 Write-Host ""
 
@@ -47,7 +48,7 @@ $RUN_AS_USER = "$env:USERDOMAIN\$env:USERNAME"
 Write-Host "Workspace:  $WORKSPACE_DIR"
 Write-Host "Script:     executar_pipeline_silent.bat"
 Write-Host "Tarefa:     $TASK_NAME"
-Write-Host "Horario:    $Time (diario)"
+Write-Host "Horarios:   $($Times -join ', ') (diario)"
 Write-Host "Usuario:    $RUN_AS_USER"
 Write-Host ""
 
@@ -76,7 +77,7 @@ $action = New-ScheduledTaskAction `
     -Argument "/c `"$BATCH_FILE`"" `
     -WorkingDirectory $WORKSPACE_DIR
 
-$trigger = New-ScheduledTaskTrigger -Daily -At $Time
+$trigger = foreach ($t in $Times) { New-ScheduledTaskTrigger -Daily -At $t }
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -98,7 +99,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Sync diario GitLab -> Supabase (mgi-kpi-pipeline)" `
+    -Description "Sync diario GitLab -> Supabase (kpi-pipeline)" `
     -Force | Out-Null
 
 Write-Host ""

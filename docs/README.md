@@ -1,9 +1,9 @@
-# Documentação — mgi-kpi-pipeline
+# Documentação — kpi-pipeline
 
-Pipeline Python que coleta dados de issues e commits dos repositórios GitLab do
-MGI (`contratos_v2` e `contratos`), processa tudo **em memória** e sincroniza
+Pipeline Python que coleta dados de issues e commits dos repositórios GitLab
+(`contratos_v2` e `contratos`), processa tudo **em memória** e sincroniza
 direto com o **Supabase**, que por sua vez alimenta o dashboard web
-[`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard).
+[`kpi-dashboard`](https://github.com/MariaHilmar/kpi-dashboard).
 
 > **O Excel não faz mais parte do fluxo.** O processamento é feito em memória
 > (`processar_issues_memoria.py`) e sincronizado direto com o Supabase.
@@ -14,13 +14,13 @@ direto com o **Supabase**, que por sua vez alimenta o dashboard web
 GitLab (issues / commits)
         │
         ▼
-mgi-kpi-pipeline  ──►  processamento em memória  ──►  sync_supabase.py
+kpi-pipeline  ──►  processamento em memória  ──►  sync_supabase.py
                                                               │
                                                               ▼
                                                        Supabase (Postgres)
                                                               │
                                                               ▼
-                                                     mgi-kpi-dashboard (web)
+                                                     kpi-dashboard (web)
 ```
 
 O dashboard é **somente leitura**: ele nunca altera issues no GitLab nem grava
@@ -38,7 +38,7 @@ no Supabase. Toda a escrita no banco é feita por este pipeline, usando a
 | [05-agendamento.md](05-agendamento.md) | Task Scheduler — execução automática diária. |
 | [06-epicos-gitlab.md](06-epicos-gitlab.md) | Épicos no GitLab MGI (Parent vs API legada) e resolução de `issues.epico`. |
 | [08-repositorio-github.md](08-repositorio-github.md) | Repositório canônico no GitHub (não espelhar para GitLab). |
-| [../mgi-kpi-dashboard/docs/10-identidades-gitlab.md](../mgi-kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
+| [../kpi-dashboard/docs/10-identidades-gitlab.md](../kpi-dashboard/docs/10-identidades-gitlab.md) | Vínculo issue ↔ usuário GitLab, backfill de perfis. |
 
 ## Atalhos
 
