@@ -73,7 +73,7 @@ WHERE mergeado_em IS NOT NULL;
 Backfill só das mergeadas sem épico:
 
 ```powershell
-cd mgi-kpi-pipeline
+cd kpi-pipeline
 python backfill_epicos_mergeadas.py --dry-run --limit 50
 python backfill_epicos_mergeadas.py
 ```
@@ -85,5 +85,5 @@ usa filhas dos epicos do grupo + Parent GraphQL; REST legado so com
 ## Referências cruzadas
 
 - Contrato Supabase ↔ dashboard: [03-integracao-dashboard.md](03-integracao-dashboard.md)
-- Coluna `epico` e pivôs: `mgi-kpi-dashboard/docs/04-dados-supabase.md`
-- Migrations do pivô por épico: `061`–`065` em `mgi-kpi-dashboard/supabase/migrations/`
+- Coluna `epico` e pivôs: `kpi-dashboard/docs/04-dados-supabase.md`
+- Migrations do pivô por épico: `061`–`065` em `kpi-dashboard/supabase/migrations/`

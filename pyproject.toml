@@ -1,5 +1,5 @@
 [project]
-name = "mgi-kpi-pipeline"
+name = "kpi-pipeline"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]

@@ -65,3 +65,28 @@ def test_enriquecer_issues_preenche_mergeado_em(monkeypatch):
     assert issues[0]["mergeado_em"] == "2026-07-05T12:00:00.000Z"
     assert "mergeado_em" not in issues[1]
     assert "mergeado_em" not in issues[2]
+
+
+def test_enriquecer_issues_pula_mergeado_em_ja_preenchido(monkeypatch):
+    issues = [
+        {
+            "id": "1410",
+            "gitlab_repo": "contratos_v2",
+            "merge_requests_count": 1,
+            "mergeado_em": "2026-06-01T10:00:00.000Z",
+        },
+        {"id": "1411", "gitlab_repo": "contratos_v2", "merge_requests_count": 1},
+    ]
+    calls: list[int] = []
+
+    def fake_merged_at(iid, repo, **_kwargs):
+        calls.append(iid)
+        return "2026-07-05T12:00:00.000Z"
+
+    monkeypatch.setattr(gitlab_merges, "merged_at_for_issue", fake_merged_at)
+    filled = enriquecer_issues_com_merge_dates(issues)
+
+    assert filled == 1
+    assert calls == [1411]
+    assert issues[0]["mergeado_em"] == "2026-06-01T10:00:00.000Z"
+    assert issues[1]["mergeado_em"] == "2026-07-05T12:00:00.000Z"

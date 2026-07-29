@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Configuracao centralizada do pipeline MGI (mgi-workspace/mgi-kpi-pipeline).
+Configuracao centralizada do pipeline (mgi-workspace/kpi-pipeline).
 
 Valores podem ser sobrescritos por variaveis de ambiente, evitando
 caminhos e credenciais espalhados/hardcoded pelo codigo.

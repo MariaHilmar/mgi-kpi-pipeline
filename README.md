@@ -1,6 +1,6 @@
-# MGI KPI Pipeline
+# KPI Pipeline
 
-[![Tests](https://github.com/MariaHilmar/mgi-kpi-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/MariaHilmar/mgi-kpi-pipeline/actions/workflows/tests.yml)
+[![Tests](https://github.com/MariaHilmar/kpi-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/MariaHilmar/kpi-pipeline/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -13,7 +13,7 @@ Engenharia de dados e automação voltada para **monitoramento de performance de
 
 ## Visão geral
 
-Pipeline ETL desenvolvido para **substituir planilhas manuais (Excel)** por uma arquitetura automatizada. O sistema extrai dados de issue trackers e repositórios Git, processa regras de negócio (taxonomia, área funcional, SLA, qualidade) **em memória** e sincroniza com o Supabase (PostgreSQL), servindo como base para o dashboard web [`mgi-kpi-dashboard`](https://github.com/MariaHilmar/mgi-kpi-dashboard). **O Excel não faz mais parte do fluxo.**
+Pipeline ETL desenvolvido para **substituir planilhas manuais (Excel)** por uma arquitetura automatizada. O sistema extrai dados de issue trackers e repositórios Git, processa regras de negócio (taxonomia, área funcional, SLA, qualidade) **em memória** e sincroniza com o Supabase (PostgreSQL), servindo como base para o dashboard web [`kpi-dashboard`](https://github.com/MariaHilmar/kpi-dashboard). **O Excel não faz mais parte do fluxo.**
 
 ---
 
@@ -44,7 +44,7 @@ graph TD
     Sync --> Build[processar_issues_memoria.py]
     Build --> Fields[issue_fields.py<br/>taxonomia · SLA · qualidade]
     Fields --> DB[(Supabase / PostgreSQL)]
-    DB --> Dashboard[mgi-kpi-dashboard]
+    DB --> Dashboard[kpi-dashboard]
 ```
 
 ### Fluxo de dados
@@ -115,8 +115,8 @@ Testes em `tests/` (`pytest`).
 ## Instalação e execução
 
 ```powershell
-git clone https://github.com/MariaHilmar/mgi-kpi-pipeline.git
-cd mgi-kpi-pipeline
+git clone https://github.com/MariaHilmar/kpi-pipeline.git
+cd kpi-pipeline
 
 python -m venv .venv
 .venv\Scripts\Activate.ps1        # Windows
@@ -190,7 +190,7 @@ A suíte cobre a derivação de campos (`issue_fields`), a construção de recor
 
 ## Banco de dados (Supabase)
 
-O schema versionado fica em `../supabase/migrations` (até **012** — identidades GitLab). Aplicar via SQL Editor do Supabase ou `supabase db push`. Contrato completo: [docs/03-integracao-dashboard.md](docs/03-integracao-dashboard.md) e `mgi-kpi-dashboard/docs/10-identidades-gitlab.md`.
+O schema versionado fica em `../supabase/migrations` (até **012** — identidades GitLab). Aplicar via SQL Editor do Supabase ou `supabase db push`. Contrato completo: [docs/03-integracao-dashboard.md](docs/03-integracao-dashboard.md) e `kpi-dashboard/docs/10-identidades-gitlab.md`.
 
 ---
 

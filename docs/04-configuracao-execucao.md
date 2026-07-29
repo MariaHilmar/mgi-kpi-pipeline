@@ -23,7 +23,7 @@ carrega automaticamente.
 | `MGI_BASE_DIR` | pasta do workspace | Base para logs/JSON consolidado. |
 | `MGI_REPOS` | *(vazio)* | Clones Git locais: `path=repo_slug;path2=slug2`. Ver `.env.example`. |
 | `MGI_WSL_REPO_PATHS` | slugs MGI padrão | Caminhos WSL para detectores Git: `slug=/wsl/path;...`. |
-| `MGI_ISSUES_JSON` | `mgi-kpi-pipeline/gitlab_issues_raw.json` | Fonte das issues processadas. |
+| `MGI_ISSUES_JSON` | `kpi-pipeline/gitlab_issues_raw.json` | Fonte das issues processadas. |
 | `MGI_GIT_DATA_JSON` | `<base>/gitlab_git_data.json` | Saída consolidada da coleta Git. |
 | `MGI_ALL_MODULES` | `1` | `1` = todos os módulos; `0` = só `Fiscalização`/`Fornecedor`. |
 | `MGI_CLOSED_EXCLUDE_DAYS` | `60` | Exclui issues fechadas há mais de N dias. |
@@ -74,7 +74,7 @@ python backfill_profile_gitlab_ids.py
 ```powershell
 $env:SUPABASE_URL = "https://xxx.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "eyJ..."
-cd D:\mgi-workspace\mgi-kpi-pipeline
+cd D:\mgi-workspace\kpi-pipeline
 python sync_supabase.py
 ```
 

@@ -5,7 +5,7 @@ sem timeouts, sem sobrescrever dados bons no Supabase, com um comando de publica
 
 ## Contexto
 
-Repositorio: `mgi-kpi-pipeline` (Python) + `mgi-kpi-dashboard` (Next.js) + `supabase/migrations`.
+Repositorio: `kpi-pipeline` (Python) + `kpi-dashboard` (Next.js) + `supabase/migrations`.
 
 Problema de negocio: pivô **Mergeadas por periodo -> Por epico** no dashboard mostrava "Nao informado".
 Causa raiz: no GitLab MGI, **epico = Parent do work item** (hierarquia), nao so `issue.epic` legado.
@@ -58,7 +58,7 @@ Ja implementado (nao reverter):
 ## Fluxo recomendado pos-implementacao
 
 ```powershell
-cd D:\mgi-workspace\mgi-kpi-pipeline
+cd D:\mgi-workspace\kpi-pipeline
 
 # Publicacao completa (primeira vez ou recuperacao)
 python publicar_kpi.py --full --sem-merge-dates

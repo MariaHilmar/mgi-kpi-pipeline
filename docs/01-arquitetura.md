@@ -26,7 +26,7 @@ sync_supabase.sync_issues_to_supabase()
 Supabase (PostgREST)  →  tabelas public.issues / public.releases / public.sync_runs
         │
         ▼
-mgi-kpi-dashboard (Next.js) consome views + RPCs
+kpi-dashboard (Next.js) consome views + RPCs
 ```
 
 O código é **"flat"** (arquivos na raiz do projeto) por compatibilidade com os

@@ -4,8 +4,8 @@
   "scripts": {
     "test": "python -m pytest",
     "lint": "ruff check .",
-    "dev": "npm run dev --prefix ../mgi-kpi-dashboard",
-    "build": "npm run build --prefix ../mgi-kpi-dashboard",
-    "start": "npm run start --prefix ../mgi-kpi-dashboard"
+    "dev": "npm run dev --prefix ../kpi-dashboard",
+    "build": "npm run build --prefix ../kpi-dashboard",
+    "start": "npm run start --prefix ../kpi-dashboard"
   }
 }
